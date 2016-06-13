@@ -112,6 +112,9 @@ VOID PrintDataHeader(
     SIZE_T              l;
     WCHAR               szBuffer[MAX_PATH * 2];
 
+    if ((MappedFile == NULL) || (SourceFileSize == 0))
+        return;
+
     RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
 
     switch (ft) {
@@ -178,13 +181,18 @@ VOID PrintDataHeader(
         ultohex(dhi.TargetHash.HashSize, _strend(szBuffer));
         cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
 
-        if (dhi.TargetHash.HashSize > 0) {
-            _strcpy(szBuffer, TEXT(" TargetHash->Hash\t"));
-            l = _strlen(szBuffer);
-            for (i = 0, j = 0; i < dhi.TargetHash.HashSize; i++, j += 2) {
-                wsprintf(&szBuffer[l + j], L"%02x", dhi.TargetHash.HashValue[i]);
+        if (dhi.TargetHash.HashSize > DELTA_MAX_HASH_SIZE) {
+            cuiPrintText(g_ConOut, TEXT("\n\rHash size exceed DELTA_MAX_HASH_SIZE."), g_ConsoleOutput, TRUE);
+        }
+        else {
+            if (dhi.TargetHash.HashSize > 0) {
+                _strcpy(szBuffer, TEXT(" TargetHash->Hash\t"));
+                l = _strlen(szBuffer);
+                for (i = 0, j = 0; i < dhi.TargetHash.HashSize; i++, j += 2) {
+                    wsprintf(&szBuffer[l + j], L"%02x", dhi.TargetHash.HashValue[i]);
+                }
+                cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
             }
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
         }
 
         break;
@@ -223,6 +231,9 @@ CFILE_TYPE GetTargetFileType(
 {
     CFILE_TYPE Result = ftUnknown;
     UCHAR *Ptr = (UCHAR *)FileBuffer;
+
+    if (FileBuffer == NULL)
+        return Result;
 
     //check if file is in compressed format 
     if (*((BYTE *)FileBuffer) == 'D' &&
@@ -288,6 +299,16 @@ BOOL ProcessFileMZ(
     BOOL bResult = FALSE;
     PVOID Ptr;
 
+    if ((SourceFile == NULL) ||
+        (OutputFileBuffer == NULL) ||
+        (OutputFileBufferSize == NULL) ||
+        (SourceFileSize == 0)
+        )
+    {
+        SetLastError(ERROR_BAD_ARGUMENTS);
+        return FALSE;
+    }
+
     Ptr = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, SourceFileSize);
     if (Ptr) {
         *OutputFileBuffer = Ptr;
@@ -325,6 +346,16 @@ BOOL ProcessFileDCN(
     DELTA_OUTPUT        Target;
     PVOID               Data = NULL;
     SIZE_T              DataSize = 0;
+
+    if ((SourceFile == NULL) ||
+        (OutputFileBuffer == NULL) ||
+        (OutputFileBufferSize == NULL) ||
+        (SourceFileSize == 0)
+        )
+    {
+        SetLastError(ERROR_BAD_ARGUMENTS);
+        return FALSE;
+    }
 
     PDCN_HEADER FileHeader = (PDCN_HEADER)SourceFile;
 
@@ -389,6 +420,16 @@ BOOL ProcessFileDCS(
 
     DWORD NumberOfBlocks = 0, i;
     DWORD BytesRead = 0, BytesWritten = 0, NextOffset;
+
+    if ((SourceFile == NULL) ||
+        (OutputFileBuffer == NULL) ||
+        (OutputFileBufferSize == NULL) ||
+        (SourceFileSize == 0)
+        )
+    {
+        SetLastError(ERROR_BAD_ARGUMENTS);
+        return FALSE;
+    }
 
 #ifdef ENABLE_VERBOSE_OUTPUT
     WCHAR szBuffer[MAX_PATH];
@@ -544,6 +585,16 @@ BOOL ProcessFileDCM(
     DELTA_OUTPUT        Target;
     DELTA_HEADER_INFO   dhi;
 
+    if ((SourceFile == NULL) ||
+        (OutputFileBuffer == NULL) ||
+        (OutputFileBufferSize == NULL) ||
+        (SourceFileSize == 0)
+        )
+    {
+        SetLastError(ERROR_BAD_ARGUMENTS);
+        return FALSE;
+    }
+
     do {
 
         RtlSecureZeroMemory(&dhi, sizeof(DELTA_HEADER_INFO));
@@ -611,7 +662,7 @@ BOOL ProcessTargetFile(
 
     do {
 
-        if ((OutputFileBuffer == NULL) || (OutputFileBufferSize == NULL))
+        if ((lpTargetFileName == NULL) || (OutputFileBuffer == NULL) || (OutputFileBufferSize == NULL))
             break;
 
         SetLastError(0);
