@@ -230,7 +230,6 @@ CFILE_TYPE GetTargetFileType(
 )
 {
     CFILE_TYPE Result = ftUnknown;
-    UCHAR *Ptr = (UCHAR *)FileBuffer;
 
     if (FileBuffer == NULL)
         return Result;
@@ -421,6 +420,10 @@ BOOL ProcessFileDCS(
     DWORD NumberOfBlocks = 0, i;
     DWORD BytesRead = 0, BytesWritten = 0, NextOffset;
 
+#ifdef ENABLE_VERBOSE_OUTPUT
+    WCHAR szBuffer[MAX_PATH];
+#endif
+
     if ((SourceFile == NULL) ||
         (OutputFileBuffer == NULL) ||
         (OutputFileBufferSize == NULL) ||
@@ -430,10 +433,6 @@ BOOL ProcessFileDCS(
         SetLastError(ERROR_BAD_ARGUMENTS);
         return FALSE;
     }
-
-#ifdef ENABLE_VERBOSE_OUTPUT
-    WCHAR szBuffer[MAX_PATH];
-#endif
 
     do {
         SetLastError(0);
