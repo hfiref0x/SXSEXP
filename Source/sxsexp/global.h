@@ -4,9 +4,9 @@
 *
 *  TITLE:       GLOBAL.H
 *
-*  VERSION:     1.00
+*  VERSION:     1.10
 *
-*  DATE:        12 June 2016
+*  DATE:        16 June 2016
 *
 *  Common header file.
 *
@@ -46,3 +46,4 @@
 #include "minirtl\cmdline.h"
 #include "csup.h"
 #include "cui.h"
+#include "compress.h"

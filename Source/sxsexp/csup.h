@@ -4,9 +4,9 @@
 *
 *  TITLE:       CSUP.H
 *
-*  VERSION:     1.00
+*  VERSION:     1.10
 *
-*  DATE:        12 June 2016
+*  DATE:        14 June 2016
 *
 *  Support routines header file.
 *
@@ -20,7 +20,6 @@
 #pragma once
 
 #pragma comment(lib, "msdelta.lib")
-#pragma comment(lib, "cabinet.lib")
 
 typedef enum _CFILE_TYPE {
     ftDCD = 1,

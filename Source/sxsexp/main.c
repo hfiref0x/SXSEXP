@@ -6,7 +6,7 @@
 *
 *  VERSION:     1.00
 *
-*  DATE:        12 June 2016
+*  DATE:        16 June 2016
 *
 *  Program entry point.
 *
@@ -27,8 +27,16 @@ BOOL       g_ConsoleOutput = FALSE;
 BOOL       g_VerboseOutput = FALSE;
 WCHAR      g_BE = 0xFEFF;
 
+BOOL       g_bCabinetInitSuccess = FALSE;
 
-#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1) expand utility v1.0.0")
+HANDLE     hCabinetDll = NULL;
+
+pfnCloseDecompressor pCloseDecompressor = NULL;
+pfnCreateDecompressor pCreateDecompressor = NULL;
+pfnDecompress pDecompress = NULL;
+
+
+#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1) expand utility v1.1.0")
 #define T_UNSUPFORMAT     TEXT("This format is not supported by this tool.")
 #define T_ERRORDELTA      TEXT("Error query delta info.")
 
@@ -437,7 +445,7 @@ BOOL ProcessFileDCS(
     do {
         SetLastError(0);
 
-        if (!CreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
+        if (!pCreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
 #ifdef ENABLE_VERBOSE_OUTPUT
             if (g_VerboseOutput) {
                 cuiPrintText(g_ConOut, TEXT("\n\rError, while creating decompressor: "), g_ConsoleOutput, FALSE);
@@ -518,7 +526,7 @@ BOOL ProcessFileDCS(
                 break;
             }
 
-            bResult = Decompress(hDecompressor,
+            bResult = pDecompress(hDecompressor,
                 Block->CompressedData, Block->CompressedBlockSize - 4,
                 (BYTE *)DataBufferPtr, Block->DecompressedBlockSize,
                 NULL);
@@ -554,7 +562,7 @@ BOOL ProcessFileDCS(
     } while (bCond);
 
     if (hDecompressor != NULL)
-        CloseDecompressor(hDecompressor);
+        pCloseDecompressor(hDecompressor);
 
     return bResult;
 }
@@ -796,6 +804,12 @@ BOOL ProcessTargetFile(
             break;
 
         case ftDCS:
+
+            if (g_bCabinetInitSuccess == FALSE) {
+                cuiPrintText(g_ConOut, TEXT("\n\rRequired Cabinet API are missing, cannot decompress this file."), g_ConsoleOutput, TRUE);
+                break;
+            }
+
 #ifdef ENABLE_VERBOSE_OUTPUT
             if (g_VerboseOutput) {
                 PrintDataHeader(ft, MappedFile, FileSize.LowPart);
@@ -824,6 +838,34 @@ BOOL ProcessTargetFile(
 }
 
 /*
+* InitCabinetDecompressionAPI
+*
+* Purpose:
+*
+* Get Cabinet API decompression function addresses.
+* Windows 7 lack of their support.
+*
+*/
+BOOL InitCabinetDecompressionAPI(
+    VOID
+)
+{
+    pDecompress = (pfnDecompress)GetProcAddress(hCabinetDll, "Decompress");
+    if (pDecompress == NULL)
+        return FALSE;
+
+    pCreateDecompressor = (pfnCreateDecompressor)GetProcAddress(hCabinetDll, "CreateDecompressor");
+    if (pCreateDecompressor == NULL)
+        return FALSE;
+
+    pCloseDecompressor = (pfnCloseDecompressor)GetProcAddress(hCabinetDll, "CloseDecompressor");
+    if (pCloseDecompressor == NULL)
+        return FALSE;
+
+    return TRUE;
+}
+
+/*
 * main
 *
 * Purpose:
@@ -845,7 +887,6 @@ void main()
     __security_init_cookie();
 
     do {
-
         g_ConOut = GetStdHandle(STD_OUTPUT_HANDLE);
         if (g_ConOut == INVALID_HANDLE_VALUE) {
             break;
@@ -860,7 +901,7 @@ void main()
         SetConsoleMode(g_ConOut, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_OUTPUT);
         if (g_ConsoleOutput == FALSE) {
             WriteFile(g_ConOut, &g_BE, sizeof(WCHAR), &dwTmp, NULL);
-        }
+        }     
 
         lpCmdLine = GetCommandLine();
         RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
@@ -901,6 +942,22 @@ void main()
                 cuiPrintText(g_ConOut, szSourceFile, g_ConsoleOutput, TRUE);
             }
 #endif
+
+            RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
+            if (GetSystemDirectory(szBuffer, MAX_PATH) == 0) {
+                cuiPrintText(g_ConOut, TEXT("SXSEXP: Could not query Windows directory"), g_ConsoleOutput, TRUE);
+                break;
+            }
+            else {
+                _strcat(szBuffer, TEXT("\\cabinet.dll"));
+            }
+            hCabinetDll = LoadLibrary(szBuffer);
+            if (hCabinetDll == NULL) {
+                cuiPrintText(g_ConOut, TEXT("SXSEXP: Error loading Cabinet.dll"), g_ConsoleOutput, TRUE);
+                break;
+            }
+
+            g_bCabinetInitSuccess = InitCabinetDecompressionAPI();
             if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize)) {
                 uResult = 0;
 
@@ -927,6 +984,9 @@ void main()
         }
 
     } while (cond);
+
+    if (hCabinetDll != NULL)
+        FreeLibrary(hCabinetDll);
 
     ExitProcess(uResult);
 }
