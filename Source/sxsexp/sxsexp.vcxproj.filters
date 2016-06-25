@@ -21,9 +21,6 @@
     <ClCompile Include="main.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="minirtl\_filename.c">
-      <Filter>minirtl</Filter>
-    </ClCompile>
     <ClCompile Include="minirtl\_strcat.c">
       <Filter>minirtl</Filter>
     </ClCompile>
@@ -62,9 +59,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="minirtl\_filename.h">
-      <Filter>minirtl</Filter>
-    </ClInclude>
     <ClInclude Include="minirtl\cmdline.h">
       <Filter>minirtl</Filter>
     </ClInclude>

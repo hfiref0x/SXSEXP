@@ -198,7 +198,6 @@
     <ClCompile Include="minirtl\u64tohex.c" />
     <ClCompile Include="minirtl\ultohex.c" />
     <ClCompile Include="minirtl\ultostr.c" />
-    <ClCompile Include="minirtl\_filename.c" />
     <ClCompile Include="minirtl\_strcat.c" />
     <ClCompile Include="minirtl\_strcmpi.c" />
     <ClCompile Include="minirtl\_strcpy.c" />
@@ -215,7 +214,6 @@
     <ClInclude Include="minirtl\cmdline.h" />
     <ClInclude Include="minirtl\minirtl.h" />
     <ClInclude Include="minirtl\rtltypes.h" />
-    <ClInclude Include="minirtl\_filename.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="wcp.h" />
   </ItemGroup>
