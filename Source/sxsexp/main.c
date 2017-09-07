@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016
+*  (C) COPYRIGHT AUTHORS, 2016 - 2017
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.00
+*  VERSION:     1.20
 *
-*  DATE:        16 June 2016
+*  DATE:        11 Aug 2017
 *
 *  Program entry point.
 *
@@ -36,7 +36,7 @@ pfnCreateDecompressor pCreateDecompressor = NULL;
 pfnDecompress pDecompress = NULL;
 
 
-#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1) expand utility v1.1.0")
+#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1) expand utility v1.2.0")
 #define T_UNSUPFORMAT     TEXT("This format is not supported by this tool.")
 #define T_ERRORDELTA      TEXT("Error query delta info.")
 
@@ -70,7 +70,7 @@ BOOL supWriteBufferToFile(
     _In_ LPWSTR lpFileName,
     _In_ PVOID Buffer,
     _In_ DWORD BufferSize
-)
+    )
 {
     HANDLE hFile;
     DWORD bytesIO;
@@ -110,7 +110,7 @@ VOID PrintDataHeader(
     CFILE_TYPE ft,
     PVOID MappedFile,
     SIZE_T SourceFileSize
-)
+    )
 {
     DWORD               i, j;
     PDCN_HEADER         pDCN;
@@ -235,7 +235,7 @@ VOID PrintDataHeader(
 */
 CFILE_TYPE GetTargetFileType(
     VOID *FileBuffer
-)
+    )
 {
     CFILE_TYPE Result = ftUnknown;
 
@@ -301,7 +301,7 @@ BOOL ProcessFileMZ(
     SIZE_T SourceFileSize,
     PVOID *OutputFileBuffer,
     PSIZE_T OutputFileBufferSize
-)
+    )
 {
     BOOL bResult = FALSE;
     PVOID Ptr;
@@ -344,7 +344,7 @@ BOOL ProcessFileDCN(
     SIZE_T SourceFileSize,
     PVOID *OutputFileBuffer,
     PSIZE_T OutputFileBufferSize
-)
+    )
 {
     BOOL bResult = FALSE, bCond = FALSE;
 
@@ -372,7 +372,7 @@ BOOL ProcessFileDCN(
         Delta.lpStart = FileHeader->Data;
         Delta.uSize = SourceFileSize - 4; //(size - signature)
         Delta.Editable = FALSE;
-        if (!GetDeltaInfoB(Delta, &dhi)) {          
+        if (!GetDeltaInfoB(Delta, &dhi)) {
             cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
             SetLastError(ERROR_BAD_FORMAT);
             break;
@@ -416,7 +416,7 @@ BOOL ProcessFileDCS(
     SIZE_T SourceFileSize,
     PVOID *OutputFileBuffer,
     PSIZE_T OutputFileBufferSize
-)
+    )
 {
     BOOL bResult = FALSE, bCond = FALSE;
     COMPRESSOR_HANDLE hDecompressor = 0;
@@ -426,7 +426,7 @@ BOOL ProcessFileDCS(
     PDCS_BLOCK Block;
 
     DWORD NumberOfBlocks = 0, i;
-    DWORD BytesRead = 0, BytesWritten = 0, NextOffset;
+    DWORD BytesRead, BytesDecompressed, NextOffset;
 
 #ifdef ENABLE_VERBOSE_OUTPUT
     WCHAR szBuffer[MAX_PATH];
@@ -473,7 +473,7 @@ BOOL ProcessFileDCS(
 #endif
             break;
         }
-        
+
         DataBuffer = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
         if (DataBuffer == NULL) {
 #ifdef ENABLE_VERBOSE_OUTPUT
@@ -489,7 +489,11 @@ BOOL ProcessFileDCS(
         NumberOfBlocks = FileHeader->NumberOfBlocks;
         Block = (PDCS_BLOCK)FileHeader->FirstBlock;
         i = 1;
-        do {
+
+        BytesRead = 0;
+        BytesDecompressed = 0;
+
+        while (NumberOfBlocks > 0) {
 
 #ifdef ENABLE_VERBOSE_OUTPUT
             if (g_VerboseOutput) {
@@ -497,7 +501,7 @@ BOOL ProcessFileDCS(
                 _strcpy(szBuffer, TEXT("\n\rDCS_BLOCK #"));
                 ultostr(i++, _strend(szBuffer));
                 cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-               
+
                 _strcpy(szBuffer, TEXT(" Block->CompressedBlockSize\t"));
                 ultohex(Block->CompressedBlockSize, _strend(szBuffer));
                 cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
@@ -517,7 +521,7 @@ BOOL ProcessFileDCS(
                 break;
             }
 
-            if (BytesWritten + Block->DecompressedBlockSize > FileHeader->UncompressedFileSize) {
+            if (BytesDecompressed + Block->DecompressedBlockSize > FileHeader->UncompressedFileSize) {
 #ifdef ENABLE_VERBOSE_OUTPUT
                 if (g_VerboseOutput) {
                     cuiPrintText(g_ConOut, TEXT("\n\rError, uncompressed data size is bigger than known uncompressed file size."), g_ConsoleOutput, TRUE);
@@ -525,6 +529,8 @@ BOOL ProcessFileDCS(
 #endif
                 break;
             }
+
+            BytesDecompressed += Block->DecompressedBlockSize;
 
             bResult = pDecompress(hDecompressor,
                 Block->CompressedData, Block->CompressedBlockSize - 4,
@@ -549,12 +555,7 @@ BOOL ProcessFileDCS(
             NextOffset = Block->CompressedBlockSize + 4;
             Block = (DCS_BLOCK*)((BYTE *)Block + NextOffset);
             BytesRead += NextOffset;
-            BytesWritten += Block->DecompressedBlockSize;
-
-            if (BytesWritten > FileHeader->UncompressedFileSize)
-                break;
-
-        } while (NumberOfBlocks > 0);
+        }
 
         *OutputFileBuffer = DataBuffer;
         *OutputFileBufferSize = FileHeader->UncompressedFileSize;
@@ -580,7 +581,7 @@ BOOL ProcessFileDCM(
     SIZE_T SourceFileSize,
     PVOID *OutputFileBuffer,
     PSIZE_T OutputFileBufferSize
-)
+    )
 {
     BOOL                bCond = FALSE, bResult = FALSE;
     PDCM_HEADER         FileHeader = (PDCM_HEADER)SourceFile;
@@ -606,7 +607,7 @@ BOOL ProcessFileDCM(
 
         RtlSecureZeroMemory(&dhi, sizeof(DELTA_HEADER_INFO));
         Delta.lpStart = FileHeader->Data;
-        Delta.uSize = SourceFileSize - 4; 
+        Delta.uSize = SourceFileSize - 4;
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
             cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
@@ -639,7 +640,7 @@ BOOL ProcessFileDCM(
         *OutputFileBufferSize = DataSize;
 
     } while (bCond);
- 
+
     return bResult;
 }
 
@@ -655,7 +656,7 @@ BOOL ProcessTargetFile(
     LPWSTR lpTargetFileName,
     PVOID *OutputFileBuffer,
     PSIZE_T OutputFileBufferSize
-)
+    )
 {
     BOOL bCond = FALSE, bResult = FALSE;
     HANDLE hFile = INVALID_HANDLE_VALUE, hFileMapping = NULL;
@@ -848,7 +849,7 @@ BOOL ProcessTargetFile(
 */
 BOOL InitCabinetDecompressionAPI(
     VOID
-)
+    )
 {
     pDecompress = (pfnDecompress)GetProcAddress(hCabinetDll, "Decompress");
     if (pDecompress == NULL)
@@ -901,7 +902,7 @@ void main()
         SetConsoleMode(g_ConOut, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_OUTPUT);
         if (g_ConsoleOutput == FALSE) {
             WriteFile(g_ConOut, &g_BE, sizeof(WCHAR), &dwTmp, NULL);
-        }     
+        }
 
         lpCmdLine = GetCommandLine();
         RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));

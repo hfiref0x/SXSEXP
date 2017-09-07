@@ -28,4 +28,4 @@ In order to build from source you need Microsoft Visual Studio 2015 and later ve
 
 # Authors
 
-(c) 2016 SXSEXP Project
+(c) 2016 - 2017 SXSEXP Project
