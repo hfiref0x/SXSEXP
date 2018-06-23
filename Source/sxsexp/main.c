@@ -44,19 +44,21 @@ pfnDecompress pDecompress = NULL;
 // Help output.
 //
 #ifdef ENABLE_VERBOSE_OUTPUT
-#define T_HELP	L"Expand compressed files from WinSxS folder.\n\n\r\
-SXSEXP [/v] Source Destination\n\n\r\
-  /v\t\tVerbose output.\n\r\
-  Source\tSource file path.\n\r\
-  Destination\tDestination file path."
+#define T_HELP  L"Expand compressed files from WinSxS folder.\n\n\r\
+SXSEXP [/v] <Source File> <Destination File>\n\r\
+SXSEXP [/v] <Source Directory> <Destination Directory>\n\r\
+  /v\t\tVerbose output."
 #else
-#define T_HELP	L"Expand compressed files from WinSxS folder.\n\n\r\
-SXSEXP Source Destination\n\n\r\
-  Source\tSource file path.\n\r\
-  Destination\tDestination file path."
+#define T_HELP  L"Expand compressed files from WinSxS folder.\n\n\r\
+SXSEXP <Source File> <Destination File>\n\r\
+SXSEXP <Source Directory> <Destination Directory>."
+
 #endif
 
 #define PathFileExists(lpszPath) (GetFileAttributes(lpszPath) != (DWORD)-1)
+#define IsDir(lpszPath)          ((GetFileAttributes(lpszPath) & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
+#define IsDirWithWFD(data)       ((data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) ==  FILE_ATTRIBUTE_DIRECTORY)
+#define ValidDir(data)           (_strcmpi(data.cFileName,TEXT("."))&&_strcmpi(data.cFileName,TEXT("..")))
 
 /*
 * supWriteBufferToFile
@@ -866,6 +868,112 @@ BOOL InitCabinetDecompressionAPI(
     return TRUE;
 }
 
+UINT ProcessTargetFileAndWriteOutput(LPWSTR szSourceFile, LPWSTR szDestinationFile)
+{
+    PVOID   OutputBuffer = NULL;
+    SIZE_T  OutputBufferSize = 0;
+    UINT    uResult = (UINT)-1;
+
+    cuiPrintText(g_ConOut, szSourceFile, g_ConsoleOutput, FALSE);
+    cuiPrintText(g_ConOut, TEXT(" => "), g_ConsoleOutput, FALSE);
+    cuiPrintText(g_ConOut, szDestinationFile, g_ConsoleOutput, TRUE);
+
+    if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize)) {
+        uResult = 0;
+
+        if (supWriteBufferToFile(szDestinationFile, OutputBuffer, (DWORD)OutputBufferSize)) {
+#ifdef ENABLE_VERBOSE_OUTPUT
+            if (g_VerboseOutput) {
+                cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
+            }
+#endif
+        }
+        else {
+#ifdef ENABLE_VERBOSE_OUTPUT
+            if (g_VerboseOutput) {
+                cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
+                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            }
+#endif
+        }
+        HeapFree(GetProcessHeap(), 0, OutputBuffer);
+    }
+    return uResult;
+}
+
+UINT ProcessTargetDirectory(LPWSTR szSourcePath, LPWSTR szDestinationPath)
+{
+    HANDLE h;
+    TCHAR temp[MAX_PATH] = { 0 };
+    TCHAR szSourceChildPath[MAX_PATH] = { 0 };
+    TCHAR szDestChildPath[MAX_PATH] = { 0 };
+    WIN32_FIND_DATA data;
+    UINT    uResult = (UINT)-1;
+
+    _strcpy(temp, szSourcePath);
+    _strcat(temp, TEXT("*.*"));
+
+    h = FindFirstFile(temp, &data); //temp = c:\windows\*.*
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (IsDirWithWFD(data)) {
+                if (ValidDir(data)) {
+                    _strcpy(szSourceChildPath, szSourcePath);
+                    _strcat(szSourceChildPath, data.cFileName);
+                    _strcat(szSourceChildPath, TEXT("\\"));
+
+                    _strcpy(szDestChildPath, szDestinationPath);
+                    _strcat(szDestChildPath, data.cFileName);
+                    _strcat(szDestChildPath, TEXT("\\"));
+
+                    if (!CreateDirectory(szDestChildPath, NULL) && !PathFileExists(szDestChildPath)) {
+                        cuiPrintText(g_ConOut, TEXT("SXSEXP: unable to create directory "), g_ConsoleOutput, FALSE);
+                        cuiPrintText(g_ConOut, szDestChildPath, g_ConsoleOutput, TRUE);
+                        return -1;
+                    }
+                    uResult = ProcessTargetDirectory(szSourceChildPath, szDestChildPath);
+                }
+            }
+            else {
+                _strcpy(szSourceChildPath, szSourcePath);
+                _strcat(szSourceChildPath, data.cFileName);
+
+                _strcpy(szDestChildPath, szDestinationPath);
+                _strcat(szDestChildPath, data.cFileName);
+
+                uResult = ProcessTargetFileAndWriteOutput(szSourceChildPath, szDestChildPath);
+            }
+        } while (FindNextFile(h, &data));
+        FindClose(h);
+    }
+    return uResult;
+}
+
+UINT ProcessTargetPath(LPWSTR szSourcePath, LPWSTR szDestinationPath)
+{
+    TCHAR szSourceTempPath[MAX_PATH] = { 0 };
+    TCHAR szDestTempPath[MAX_PATH] = { 0 };
+    _strcpy(szSourceTempPath, szSourcePath);
+    _strcpy(szDestTempPath, szDestinationPath);
+
+    if (IsDir(szSourceTempPath) && IsDir(szDestTempPath)) {
+        if (szSourceTempPath[_strlen(szSourceTempPath) - 1] != TEXT('\\'))
+            _strcat(szSourceTempPath, TEXT("\\"));
+        
+        if (szDestTempPath[_strlen(szDestTempPath) - 1] != TEXT('\\'))
+            _strcat(szDestTempPath, TEXT("\\"));
+
+        return ProcessTargetDirectory(szSourceTempPath, szDestTempPath);
+    }
+    else if (!IsDir(szSourceTempPath)) {
+        return ProcessTargetFileAndWriteOutput(szSourceTempPath, szDestTempPath);
+    }
+    else {
+        cuiPrintText(g_ConOut, TEXT("SXSEXP: invalid paths specified"), g_ConsoleOutput, TRUE);
+        return -1;
+    }
+}
+
 /*
 * main
 *
@@ -881,9 +989,7 @@ void main()
     UINT    uResult = (UINT)-1;
     LPWSTR  lpCmdLine;
     WCHAR   szBuffer[MAX_PATH * 2];
-    WCHAR   szSourceFile[MAX_PATH], szDestinationFile[MAX_PATH];
-    PVOID   OutputBuffer = NULL;
-    SIZE_T  OutputBufferSize = 0;
+    WCHAR   szSourcePath[MAX_PATH], szDestinationPath[MAX_PATH];
 
     __security_init_cookie();
 
@@ -920,27 +1026,27 @@ void main()
                 GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp);
             }
 #endif
-            RtlSecureZeroMemory(szSourceFile, sizeof(szSourceFile));
-            _strncpy(szSourceFile, MAX_PATH, szBuffer, MAX_PATH);
+            RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
+            _strncpy(szSourcePath, MAX_PATH, szBuffer, MAX_PATH);
 
-            if (!PathFileExists(szSourceFile)) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Source File not found"), g_ConsoleOutput, TRUE);
+            if (!PathFileExists(szSourcePath)) {
+                cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Path not found"), g_ConsoleOutput, TRUE);
                 break;
             }
 
             dwTmp = 0;
             paramId++;
-            RtlSecureZeroMemory(szDestinationFile, sizeof(szDestinationFile));
-            GetCommandLineParam(lpCmdLine, paramId, szDestinationFile, MAX_PATH, &dwTmp);
+            RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
+            GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp);
             if (dwTmp == 0) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Destination File not specified"), g_ConsoleOutput, TRUE);
+                cuiPrintText(g_ConOut, TEXT("SXSEXP: Destination Path not specified"), g_ConsoleOutput, TRUE);
                 break;
             }
 
 #ifdef ENABLE_VERBOSE_OUTPUT
             if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Processing target file\t"), g_ConsoleOutput, FALSE);
-                cuiPrintText(g_ConOut, szSourceFile, g_ConsoleOutput, TRUE);
+                cuiPrintText(g_ConOut, TEXT("Processing target path\t"), g_ConsoleOutput, FALSE);
+                cuiPrintText(g_ConOut, szSourcePath, g_ConsoleOutput, TRUE);
             }
 #endif
 
@@ -959,26 +1065,8 @@ void main()
             }
 
             g_bCabinetInitSuccess = InitCabinetDecompressionAPI();
-            if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize)) {
-                uResult = 0;
 
-                if (supWriteBufferToFile(szDestinationFile, OutputBuffer, (DWORD)OutputBufferSize)) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-                    if (g_VerboseOutput) {
-                        cuiPrintText(g_ConOut, TEXT("\n\rOperation Successful"), g_ConsoleOutput, TRUE);
-                    }
-#endif
-                }
-                else {
-#ifdef ENABLE_VERBOSE_OUTPUT
-                    if (g_VerboseOutput) {
-                        cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
-                        cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-                    }
-#endif
-                }
-                HeapFree(GetProcessHeap(), 0, OutputBuffer);
-            }
+            uResult = ProcessTargetPath(szSourcePath, szDestinationPath);
         }
         else {
             cuiPrintText(g_ConOut, T_HELP, g_ConsoleOutput, TRUE);
@@ -991,3 +1079,4 @@ void main()
 
     ExitProcess(uResult);
 }
+
