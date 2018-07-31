@@ -14,7 +14,9 @@ x86/x64 Windows 7/8/8.1/10
 
 # Usage
 SXSEXP < Source File > < Destination File >
+
 SXSEXP < Source Directory > < Destination Directory >
+
 SXSEXP /d < Source File > < Source Delta File > < Destination File >
 
 Example: 
