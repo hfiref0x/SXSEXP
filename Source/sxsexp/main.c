@@ -450,8 +450,7 @@ BOOL ProcessFileDCD(
 )
 {
     BOOL bCond = FALSE, bResult = FALSE;
-    HANDLE hFile = INVALID_HANDLE_VALUE, hFileMapping = NULL;
-    PDWORD MappedFile = NULL;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
     LARGE_INTEGER FileSize; 
 
     SIZE_T DataSize = 0;
@@ -1107,7 +1106,9 @@ UINT ProcessTargetPath(
 * Special routine to process DCD file type as it requires special approach.
 *
 */
-VOID DCDMode(_In_ LPWSTR lpCmdLine)
+VOID DCDMode(
+    _In_ LPWSTR lpCmdLine
+)
 {
     DWORD   dwTmp = 0;
 
