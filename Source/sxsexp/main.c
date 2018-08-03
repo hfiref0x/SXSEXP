@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016 - 2017
+*  (C) COPYRIGHT AUTHORS, 2016 - 2018
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.20
+*  VERSION:     1.30
 *
-*  DATE:        11 Aug 2017
+*  DATE:        30 July 2018
 *
 *  Program entry point.
 *
@@ -20,11 +20,8 @@
 #include "global.h"
 #include "wcp.h"
 
-#define ENABLE_VERBOSE_OUTPUT
-
-HANDLE     g_ConOut = NULL;
+HANDLE     g_ConOut = NULL, g_Heap = NULL;
 BOOL       g_ConsoleOutput = FALSE;
-BOOL       g_VerboseOutput = FALSE;
 WCHAR      g_BE = 0xFEFF;
 
 BOOL       g_bCabinetInitSuccess = FALSE;
@@ -36,29 +33,22 @@ pfnCreateDecompressor pCreateDecompressor = NULL;
 pfnDecompress pDecompress = NULL;
 
 
-#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1) expand utility v1.2.0")
+#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1/DCD1) expand utility v1.3.0")
 #define T_UNSUPFORMAT     TEXT("This format is not supported by this tool.")
 #define T_ERRORDELTA      TEXT("Error query delta info.")
 
 //
 // Help output.
 //
-#ifdef ENABLE_VERBOSE_OUTPUT
-#define T_HELP  L"Expand compressed files from WinSxS folder.\n\n\r\
-SXSEXP [/v] <Source File> <Destination File>\n\r\
-SXSEXP [/v] <Source Directory> <Destination Directory>\n\r\
-  /v\t\tVerbose output."
-#else
 #define T_HELP  L"Expand compressed files from WinSxS folder.\n\n\r\
 SXSEXP <Source File> <Destination File>\n\r\
-SXSEXP <Source Directory> <Destination Directory>."
-
-#endif
+SXSEXP <Source Directory> <Destination Directory>\n\r\
+SXSEXP /d <Source File> <Source Delta File> <Destination File>"
 
 #define PathFileExists(lpszPath) (GetFileAttributes(lpszPath) != (DWORD)-1)
 #define IsDir(lpszPath)          ((GetFileAttributes(lpszPath) & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
-#define IsDirWithWFD(data)       ((data.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) ==  FILE_ATTRIBUTE_DIRECTORY)
-#define ValidDir(data)           (_strcmpi(data.cFileName,TEXT("."))&&_strcmpi(data.cFileName,TEXT("..")))
+#define IsDirWithWFD(data)       ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ==  FILE_ATTRIBUTE_DIRECTORY)
+#define ValidDir(data)           (_strcmpi(data.cFileName, TEXT(".")) && _strcmpi(data.cFileName, TEXT("..")))
 
 /*
 * supWriteBufferToFile
@@ -72,20 +62,10 @@ BOOL supWriteBufferToFile(
     _In_ LPWSTR lpFileName,
     _In_ PVOID Buffer,
     _In_ DWORD BufferSize
-    )
+)
 {
     HANDLE hFile;
-    DWORD bytesIO;
-
-    if (
-        (lpFileName == NULL) ||
-        (Buffer == NULL) ||
-        (BufferSize == 0)
-        )
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
+    DWORD bytesIO = 0;
 
     hFile = CreateFileW(lpFileName,
         GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
@@ -101,6 +81,110 @@ BOOL supWriteBufferToFile(
 }
 
 /*
+* PrintDeltaHeaderInfo
+*
+* Purpose:
+*
+* Output DELTA_HEADER_INFO fields to user.
+*
+*/
+VOID PrintDeltaHeaderInfo(
+    _In_ LPDELTA_HEADER_INFO pdhi
+)
+{
+    DWORD   i, j;
+    SIZE_T  l;
+    WCHAR   szBuffer[MAX_PATH * 2];
+
+    cuiPrintText(g_ConOut, TEXT("\n\rDELTA_HEADER_INFO\n\r"), g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" FileTypeSet\t\t"));
+    u64tohex(pdhi->FileTypeSet, _strend(szBuffer));
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" FileType\t\t"));
+    u64tohex(pdhi->FileType, _strend(szBuffer));
+
+    switch (pdhi->FileType) {
+
+    case DELTA_FILE_TYPE_RAW:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_RAW)"));
+        break;
+
+    case DELTA_FILE_TYPE_I386:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_I386)"));
+        break;
+
+    case DELTA_FILE_TYPE_IA64:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_IA64)"));
+        break;
+
+    case DELTA_FILE_TYPE_AMD64:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_AMD64)"));
+        break;
+
+    case DELTA_FILE_TYPE_CLI4_I386:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_CLI4_I386)"));
+        break;
+
+    case DELTA_FILE_TYPE_CLI4_AMD64:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_CLI4_AMD64)"));
+        break;
+
+    case DELTA_FILE_TYPE_CLI4_ARM:
+        _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_CLI4_ARM)"));
+        break;
+
+    default:
+        break;
+    }
+
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" Flags\t\t\t"));
+    u64tohex(pdhi->Flags, _strend(szBuffer));
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" TargetSize\t\t"));
+
+#ifdef _WIN64
+    u64tohex(pdhi->TargetSize, _strend(szBuffer));
+#else
+    ultohex(pdhi->TargetSize, _strend(szBuffer));
+#endif
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" TargetFileTime\t\t"));
+    ultohex(pdhi->TargetFileTime.dwLowDateTime, _strend(szBuffer));
+    _strcat(szBuffer, TEXT(":"));
+    ultohex(pdhi->TargetFileTime.dwHighDateTime, _strend(szBuffer));
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" TargetHashAlgId\t"));
+    ultohex(pdhi->TargetHashAlgId, _strend(szBuffer));
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    _strcpy(szBuffer, TEXT(" TargetHash->HashSize\t"));
+    ultohex(pdhi->TargetHash.HashSize, _strend(szBuffer));
+    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+
+    if (pdhi->TargetHash.HashSize > DELTA_MAX_HASH_SIZE) {
+        cuiPrintText(g_ConOut, TEXT("\n\rHash size exceed DELTA_MAX_HASH_SIZE."), g_ConsoleOutput, TRUE);
+    }
+    else {
+        if (pdhi->TargetHash.HashSize > 0) {
+            _strcpy(szBuffer, TEXT(" TargetHash->Hash\t"));
+            l = _strlen(szBuffer);
+            for (i = 0, j = 0; i < pdhi->TargetHash.HashSize; i++, j += 2) {
+                wsprintf(&szBuffer[l + j], L"%02x", pdhi->TargetHash.HashValue[i]);
+            }
+            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+        }
+    }
+
+}
+
+/*
 * PrintDataHeader
 *
 * Purpose:
@@ -109,25 +193,37 @@ BOOL supWriteBufferToFile(
 *
 */
 VOID PrintDataHeader(
-    CFILE_TYPE ft,
-    PVOID MappedFile,
-    SIZE_T SourceFileSize
-    )
+    _In_ CFILE_TYPE ft,
+    _In_ PVOID MappedFile,
+    _In_ SIZE_T SourceFileSize
+)
 {
-    DWORD               i, j;
+    PDCD_HEADER         pDCD;
     PDCN_HEADER         pDCN;
     PDCS_HEADER         pDCS;
     DELTA_HEADER_INFO   dhi;
     DELTA_INPUT         Delta;
-    SIZE_T              l;
     WCHAR               szBuffer[MAX_PATH * 2];
 
-    if ((MappedFile == NULL) || (SourceFileSize == 0))
-        return;
-
-    RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
-
     switch (ft) {
+
+    case ftDCD:
+        cuiPrintText(g_ConOut,
+            TEXT("\n\rDCD_HEADER found, querying delta info.\n\r"), g_ConsoleOutput, TRUE);
+
+        pDCD = (PDCD_HEADER)MappedFile;
+
+        RtlSecureZeroMemory(&dhi, sizeof(DELTA_HEADER_INFO));
+        Delta.lpStart = pDCD->Data;
+        Delta.uSize = SourceFileSize - 12;  //size without header specific fields
+        Delta.Editable = FALSE;
+        if (!GetDeltaInfoB(Delta, &dhi)) {
+            cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        PrintDeltaHeaderInfo(&dhi);
+        break;
 
         //share same header structure
     case ftDCN:
@@ -144,70 +240,19 @@ VOID PrintDataHeader(
 
         RtlSecureZeroMemory(&dhi, sizeof(DELTA_HEADER_INFO));
         Delta.lpStart = pDCN->Data;
-        Delta.uSize = SourceFileSize - 4;
+        Delta.uSize = SourceFileSize - 4; //size without header
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
             cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
             break;
         }
 
-        cuiPrintText(g_ConOut, TEXT("\n\rDELTA_HEADER_INFO\n\r"), g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" FileTypeSet\t\t"));
-        u64tohex(dhi.FileTypeSet, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" FileType\t\t"));
-        u64tohex(dhi.FileType, _strend(szBuffer));
-        if (dhi.FileType == DELTA_FILE_TYPE_RAW) {
-            _strcat(szBuffer, TEXT(" (DELTA_FILE_TYPE_RAW)"));
-        }
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" Flags\t\t\t"));
-        u64tohex(dhi.Flags, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" TargetSize\t\t"));
-
-#ifdef _WIN64
-        u64tohex(dhi.TargetSize, _strend(szBuffer));
-#else
-        ultohex(dhi.TargetSize, _strend(szBuffer));
-#endif
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" TargetFileTime\t\t"));
-        ultohex(dhi.TargetFileTime.dwLowDateTime, _strend(szBuffer));
-        _strcat(szBuffer, TEXT(":"));
-        ultohex(dhi.TargetFileTime.dwHighDateTime, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" TargetHashAlgId\t"));
-        ultohex(dhi.TargetHashAlgId, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        _strcpy(szBuffer, TEXT(" TargetHash->HashSize\t"));
-        ultohex(dhi.TargetHash.HashSize, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-
-        if (dhi.TargetHash.HashSize > DELTA_MAX_HASH_SIZE) {
-            cuiPrintText(g_ConOut, TEXT("\n\rHash size exceed DELTA_MAX_HASH_SIZE."), g_ConsoleOutput, TRUE);
-        }
-        else {
-            if (dhi.TargetHash.HashSize > 0) {
-                _strcpy(szBuffer, TEXT(" TargetHash->Hash\t"));
-                l = _strlen(szBuffer);
-                for (i = 0, j = 0; i < dhi.TargetHash.HashSize; i++, j += 2) {
-                    wsprintf(&szBuffer[l + j], L"%02x", dhi.TargetHash.HashValue[i]);
-                }
-                cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-            }
-        }
-
+        PrintDeltaHeaderInfo(&dhi);
         break;
 
     case ftDCS:
+
+        RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
 
         pDCS = (PDCS_HEADER)MappedFile;
 
@@ -236,8 +281,8 @@ VOID PrintDataHeader(
 *
 */
 CFILE_TYPE GetTargetFileType(
-    VOID *FileBuffer
-    )
+    _In_ VOID *FileBuffer
+)
 {
     CFILE_TYPE Result = ftUnknown;
 
@@ -298,27 +343,18 @@ CFILE_TYPE GetTargetFileType(
 * Copy Portable Executable to the output buffer, caller must free it with HeapFree.
 *
 */
+_Success_(return == TRUE)
 BOOL ProcessFileMZ(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
-    )
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+)
 {
     BOOL bResult = FALSE;
     PVOID Ptr;
 
-    if ((SourceFile == NULL) ||
-        (OutputFileBuffer == NULL) ||
-        (OutputFileBufferSize == NULL) ||
-        (SourceFileSize == 0)
-        )
-    {
-        SetLastError(ERROR_BAD_ARGUMENTS);
-        return FALSE;
-    }
-
-    Ptr = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, SourceFileSize);
+    Ptr = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, SourceFileSize);
     if (Ptr) {
         *OutputFileBuffer = Ptr;
         *OutputFileBufferSize = SourceFileSize;
@@ -341,12 +377,13 @@ BOOL ProcessFileMZ(
 * Unpack DCN file to the buffer, caller must free it with HeapFree.
 *
 */
+_Success_(return == TRUE)
 BOOL ProcessFileDCN(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
-    )
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+)
 {
     BOOL bResult = FALSE, bCond = FALSE;
 
@@ -355,16 +392,6 @@ BOOL ProcessFileDCN(
     DELTA_OUTPUT        Target;
     PVOID               Data = NULL;
     SIZE_T              DataSize = 0;
-
-    if ((SourceFile == NULL) ||
-        (OutputFileBuffer == NULL) ||
-        (OutputFileBufferSize == NULL) ||
-        (SourceFileSize == 0)
-        )
-    {
-        SetLastError(ERROR_BAD_ARGUMENTS);
-        return FALSE;
-    }
 
     PDCN_HEADER FileHeader = (PDCN_HEADER)SourceFile;
 
@@ -386,7 +413,7 @@ BOOL ProcessFileDCN(
         bResult = ApplyDeltaB(DELTA_DEFAULT_FLAGS_RAW, Source, Delta, &Target);
         if (bResult) {
 
-            Data = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Target.uSize);
+            Data = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, Target.uSize);
             if (Data) {
                 RtlCopyMemory(Data, Target.lpStart, Target.uSize);
                 DataSize = Target.uSize;
@@ -406,6 +433,113 @@ BOOL ProcessFileDCN(
 }
 
 /*
+* ProcessFileDCD
+*
+* Purpose:
+*
+* Apply DCD file to the source file into the result buffer, caller must free it with HeapFree.
+*
+*/
+_Success_(return == TRUE)
+BOOL ProcessFileDCD(
+    _In_ PVOID DeltaSourceFile,
+    _In_ SIZE_T DeltaSourceFileSize,
+    _In_ LPWSTR lpSourceFileName,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+)
+{
+    BOOL bCond = FALSE, bResult = FALSE;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    LARGE_INTEGER FileSize; 
+
+    SIZE_T DataSize = 0;
+
+    PVOID Data = NULL, SourceFileBuffer = NULL;
+
+    PDCD_HEADER pDCD = (PDCD_HEADER)DeltaSourceFile;
+
+    DWORD bytesIO = 0;
+
+    DELTA_INPUT isrc, idelta;
+    DELTA_OUTPUT ioutput;
+
+    do {
+
+        hFile = CreateFile(lpSourceFileName, GENERIC_READ | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+
+        if (hFile == INVALID_HANDLE_VALUE) {
+            cuiPrintText(g_ConOut, TEXT("Error openning source file: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        if (!GetFileSizeEx(hFile, &FileSize)) {
+            cuiPrintText(g_ConOut, TEXT("Error query source file size: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        if ((FileSize.QuadPart  < 12) || (FileSize.QuadPart  > 2147483648ll)) {
+            cuiPrintText(g_ConOut, TEXT("Invalid file size."), g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        SourceFileBuffer = VirtualAlloc(NULL, FileSize.LowPart,
+            MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+
+        if (SourceFileBuffer == NULL) {
+            cuiPrintText(g_ConOut, TEXT("Cannot allocate memory for this operation: "), g_ConsoleOutput, TRUE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        if (!ReadFile(hFile, SourceFileBuffer, FileSize.LowPart, &bytesIO, NULL)) {
+            cuiPrintText(g_ConOut, TEXT("Error reading source file: "), g_ConsoleOutput, TRUE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            break;
+        }
+
+        CloseHandle(hFile);
+        hFile = INVALID_HANDLE_VALUE;
+
+        isrc.Editable = TRUE;
+        isrc.lpStart = SourceFileBuffer;
+        isrc.uSize = FileSize.LowPart;
+
+        idelta.Editable = FALSE;
+        idelta.lpStart = pDCD->Data;
+        idelta.uSize = DeltaSourceFileSize - 12; //exclude header fields
+
+        ioutput.lpStart = NULL;
+        ioutput.uSize = 0;
+        bResult = ApplyDeltaB(DELTA_DEFAULT_FLAGS_RAW, isrc, idelta, &ioutput);
+        if (bResult) {
+
+            Data = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, ioutput.uSize);
+            if (Data) {
+                RtlCopyMemory(Data, ioutput.lpStart, ioutput.uSize);
+                DataSize = ioutput.uSize;
+            }
+            DeltaFree(ioutput.lpStart);
+        }
+        else {
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        }
+
+        *OutputFileBuffer = Data;
+        *OutputFileBufferSize = DataSize;
+
+    } while (bCond);
+
+    if (SourceFileBuffer) VirtualFree(SourceFileBuffer, 0, MEM_RELEASE);
+    if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+
+    return bResult;
+}
+
+/*
 * ProcessFileDCS
 *
 * Purpose:
@@ -413,12 +547,13 @@ BOOL ProcessFileDCN(
 * Unpack DCS file to the buffer, caller must free it with HeapFree.
 *
 */
+_Success_(return == TRUE)
 BOOL ProcessFileDCS(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
-    )
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+)
 {
     BOOL bResult = FALSE, bCond = FALSE;
     COMPRESSOR_HANDLE hDecompressor = 0;
@@ -430,60 +565,32 @@ BOOL ProcessFileDCS(
     DWORD NumberOfBlocks = 0, i;
     DWORD BytesRead, BytesDecompressed, NextOffset;
 
-#ifdef ENABLE_VERBOSE_OUTPUT
     WCHAR szBuffer[MAX_PATH];
-#endif
-
-    if ((SourceFile == NULL) ||
-        (OutputFileBuffer == NULL) ||
-        (OutputFileBufferSize == NULL) ||
-        (SourceFileSize == 0)
-        )
-    {
-        SetLastError(ERROR_BAD_ARGUMENTS);
-        return FALSE;
-    }
 
     do {
         SetLastError(0);
 
         if (!pCreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("\n\rError, while creating decompressor: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("\n\rError, while creating decompressor: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
         if (FileHeader->UncompressedFileSize == 0) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("\n\rError, UncompressedFileSize is 0"), g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("\n\rError, UncompressedFileSize is 0"), g_ConsoleOutput, TRUE);
             break;
 
         }
 
         if (FileHeader->NumberOfBlocks == 0) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("\n\rError, NumberOfBlocks is 0"), g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("\n\rError, NumberOfBlocks is 0"), g_ConsoleOutput, TRUE);
             break;
         }
 
-        DataBuffer = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
+        DataBuffer = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
         if (DataBuffer == NULL) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("\n\rError, memory allocation failed: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("\n\rError, memory allocation failed: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
@@ -497,38 +604,34 @@ BOOL ProcessFileDCS(
 
         while (NumberOfBlocks > 0) {
 
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
-                _strcpy(szBuffer, TEXT("\n\rDCS_BLOCK #"));
-                ultostr(i++, _strend(szBuffer));
-                cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
+            _strcpy(szBuffer, TEXT("\n\rDCS_BLOCK #"));
+            ultostr(i++, _strend(szBuffer));
+            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
 
-                _strcpy(szBuffer, TEXT(" Block->CompressedBlockSize\t"));
-                ultohex(Block->CompressedBlockSize, _strend(szBuffer));
-                cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            _strcpy(szBuffer, TEXT(" Block->CompressedBlockSize\t"));
+            ultohex(Block->CompressedBlockSize, _strend(szBuffer));
+            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
 
-                _strcpy(szBuffer, TEXT(" Block->DecompressedBlockSize\t"));
-                ultohex(Block->DecompressedBlockSize, _strend(szBuffer));
-                cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-            }
-#endif
+            _strcpy(szBuffer, TEXT(" Block->DecompressedBlockSize\t"));
+            ultohex(Block->DecompressedBlockSize, _strend(szBuffer));
+            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
 
             if (BytesRead + Block->CompressedBlockSize > SourceFileSize) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-                if (g_VerboseOutput) {
-                    cuiPrintText(g_ConOut, TEXT("\n\rError, compressed data size is bigger than file size."), g_ConsoleOutput, TRUE);
-                }
-#endif
+
+                cuiPrintText(g_ConOut,
+                    TEXT("\n\rError, compressed data size is bigger than file size."),
+                    g_ConsoleOutput, TRUE);
+
                 break;
             }
 
             if (BytesDecompressed + Block->DecompressedBlockSize > FileHeader->UncompressedFileSize) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-                if (g_VerboseOutput) {
-                    cuiPrintText(g_ConOut, TEXT("\n\rError, uncompressed data size is bigger than known uncompressed file size."), g_ConsoleOutput, TRUE);
-                }
-#endif
+
+                cuiPrintText(g_ConOut,
+                    TEXT("\n\rError, uncompressed data size is bigger than known uncompressed file size."),
+                    g_ConsoleOutput, TRUE);
+
                 break;
             }
 
@@ -540,12 +643,8 @@ BOOL ProcessFileDCS(
                 NULL);
 
             if (!bResult) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-                if (g_VerboseOutput) {
-                    cuiPrintText(g_ConOut, TEXT("\n\rError, decompression failure: "), g_ConsoleOutput, FALSE);
-                    cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-                }
-#endif
+                cuiPrintText(g_ConOut, TEXT("\n\rError, decompression failure: "), g_ConsoleOutput, FALSE);
+                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
                 break;
             }
 
@@ -578,12 +677,13 @@ BOOL ProcessFileDCS(
 * Unpack DCM file to the buffer, caller must free it with HeapFree.
 *
 */
+_Success_(return == TRUE)
 BOOL ProcessFileDCM(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
-    )
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+)
 {
     BOOL                bCond = FALSE, bResult = FALSE;
     PDCM_HEADER         FileHeader = (PDCM_HEADER)SourceFile;
@@ -594,16 +694,6 @@ BOOL ProcessFileDCM(
     DELTA_INPUT         Source, Delta;
     DELTA_OUTPUT        Target;
     DELTA_HEADER_INFO   dhi;
-
-    if ((SourceFile == NULL) ||
-        (OutputFileBuffer == NULL) ||
-        (OutputFileBufferSize == NULL) ||
-        (SourceFileSize == 0)
-        )
-    {
-        SetLastError(ERROR_BAD_ARGUMENTS);
-        return FALSE;
-    }
 
     do {
 
@@ -627,7 +717,7 @@ BOOL ProcessFileDCM(
         bResult = ApplyDeltaB(DELTA_DEFAULT_FLAGS_RAW, Source, Delta, &Target);
         if (bResult) {
 
-            Data = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, Target.uSize);
+            Data = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, Target.uSize);
             if (Data) {
                 RtlCopyMemory(Data, Target.lpStart, Target.uSize);
                 DataSize = Target.uSize;
@@ -654,11 +744,13 @@ BOOL ProcessFileDCM(
 * Read input file, depending on data type call dedicated decompressing handler.
 *
 */
+_Success_(return == TRUE)
 BOOL ProcessTargetFile(
-    LPWSTR lpTargetFileName,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
-    )
+    _In_ LPWSTR lpTargetFileName,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize,
+    _In_opt_ LPWSTR lpDeltaFileName
+)
 {
     BOOL bCond = FALSE, bResult = FALSE;
     HANDLE hFile = INVALID_HANDLE_VALUE, hFileMapping = NULL;
@@ -666,87 +758,60 @@ BOOL ProcessTargetFile(
     LARGE_INTEGER FileSize;
     CFILE_TYPE ft;
 
-#ifdef ENABLE_VERBOSE_OUTPUT
     WCHAR szBuffer[MAX_PATH];
-#endif
 
     do {
 
-        if ((lpTargetFileName == NULL) || (OutputFileBuffer == NULL) || (OutputFileBufferSize == NULL))
-            break;
-
         SetLastError(0);
 
-        hFile = CreateFile(lpTargetFileName, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+        hFile = CreateFile(lpTargetFileName,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL,
+            OPEN_EXISTING,
+            0, NULL);
+
         if (hFile == INVALID_HANDLE_VALUE) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Error openning source file: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Error openning source file: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
         FileSize.QuadPart = 0;
         if (!GetFileSizeEx(hFile, &FileSize)) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Error query file size: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Error query file size: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
-#ifdef ENABLE_VERBOSE_OUTPUT
-        if (g_VerboseOutput) {
-            RtlSecureZeroMemory(&szBuffer, sizeof(szBuffer));
-            _strcpy(szBuffer, TEXT("File size\t\t"));
-            ultostr(FileSize.LowPart, _strend(szBuffer));
-            _strcat(szBuffer, TEXT(" bytes"));
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
-        }
-#endif
+        RtlSecureZeroMemory(&szBuffer, sizeof(szBuffer));
+        _strcpy(szBuffer, TEXT("File size\t\t"));
+        ultostr(FileSize.LowPart, _strend(szBuffer));
+        _strcat(szBuffer, TEXT(" bytes"));
+        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
 
         if (FileSize.QuadPart < 8) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("File size too small."), g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("File size is too small."), g_ConsoleOutput, TRUE);
             break;
         }
 
         hFileMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
         if (hFileMapping == NULL) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("File mapping error: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("File mapping error: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
         MappedFile = MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
         if (MappedFile == NULL) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Map view of file error: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Map view of file error: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
             break;
         }
 
         ft = GetTargetFileType(MappedFile);
         if (ft == ftUnknown) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("File format unknown."), g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("File format is unknown."), g_ConsoleOutput, TRUE);
             break;
         }
 
@@ -754,55 +819,33 @@ BOOL ProcessTargetFile(
 
         case ftMZ:
             bResult = ProcessFileMZ(MappedFile, FileSize.LowPart, OutputFileBuffer, OutputFileBufferSize);
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("FileType: MZ, file will be copied"), g_ConsoleOutput, TRUE);
-            }
-#endif
-            break;
-
-        case ftDCD:
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("FileType: DCD1 "), g_ConsoleOutput, FALSE);
-                cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("FileType: MZ, file will be copied"), g_ConsoleOutput, TRUE);
             break;
 
         case ftDCH:
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("FileType: DCH1 "), g_ConsoleOutput, FALSE);
-                cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("FileType: DCH1 "), g_ConsoleOutput, FALSE);
+            cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
             break;
 
         case ftDCX:
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("FileType: DCX1 "), g_ConsoleOutput, FALSE);
-                cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
+            cuiPrintText(g_ConOut, TEXT("FileType: DCX1 "), g_ConsoleOutput, FALSE);
+            cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
+            break;
+
+        case ftDCD:
+            if (lpDeltaFileName) {
+                PrintDataHeader(ft, MappedFile, FileSize.LowPart);
+                bResult = ProcessFileDCD(MappedFile, FileSize.LowPart, lpDeltaFileName, OutputFileBuffer, OutputFileBufferSize);
             }
-#endif
             break;
 
         case ftDCM:
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                PrintDataHeader(ft, MappedFile, FileSize.LowPart);
-            }
-#endif
+            PrintDataHeader(ft, MappedFile, FileSize.LowPart);
             bResult = ProcessFileDCM(MappedFile, FileSize.LowPart, OutputFileBuffer, OutputFileBufferSize);
             break;
 
         case ftDCN:
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                PrintDataHeader(ft, MappedFile, FileSize.LowPart);
-            }
-#endif
+            PrintDataHeader(ft, MappedFile, FileSize.LowPart);
             bResult = ProcessFileDCN(MappedFile, FileSize.LowPart, OutputFileBuffer, OutputFileBufferSize);
             break;
 
@@ -813,11 +856,7 @@ BOOL ProcessTargetFile(
                 break;
             }
 
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                PrintDataHeader(ft, MappedFile, FileSize.LowPart);
-            }
-#endif
+            PrintDataHeader(ft, MappedFile, FileSize.LowPart);
             bResult = ProcessFileDCS(MappedFile, FileSize.LowPart, OutputFileBuffer, OutputFileBufferSize);
             break;
 
@@ -851,7 +890,7 @@ BOOL ProcessTargetFile(
 */
 BOOL InitCabinetDecompressionAPI(
     VOID
-    )
+)
 {
     pDecompress = (pfnDecompress)GetProcAddress(hCabinetDll, "Decompress");
     if (pDecompress == NULL)
@@ -868,7 +907,18 @@ BOOL InitCabinetDecompressionAPI(
     return TRUE;
 }
 
-UINT ProcessTargetFileAndWriteOutput(LPWSTR szSourceFile, LPWSTR szDestinationFile)
+/*
+* ProcessTargetFileAndWriteOutput
+*
+* Purpose:
+*
+* Expand file.
+*
+*/
+UINT ProcessTargetFileAndWriteOutput(
+    _In_ LPWSTR szSourceFile,
+    _In_ LPWSTR szDestinationFile
+)
 {
     PVOID   OutputBuffer = NULL;
     SIZE_T  OutputBufferSize = 0;
@@ -878,99 +928,236 @@ UINT ProcessTargetFileAndWriteOutput(LPWSTR szSourceFile, LPWSTR szDestinationFi
     cuiPrintText(g_ConOut, TEXT(" => "), g_ConsoleOutput, FALSE);
     cuiPrintText(g_ConOut, szDestinationFile, g_ConsoleOutput, TRUE);
 
-    if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize)) {
+    if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize, NULL)) {
         uResult = 0;
 
         if (supWriteBufferToFile(szDestinationFile, OutputBuffer, (DWORD)OutputBufferSize)) {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
         }
         else {
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
         }
-        HeapFree(GetProcessHeap(), 0, OutputBuffer);
+        if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
     }
     return uResult;
 }
 
-UINT ProcessTargetDirectory(LPWSTR szSourcePath, LPWSTR szDestinationPath)
+/*
+* ProcessTargetDirectory
+*
+* Purpose:
+*
+* Recursively process given directory.
+*
+*/
+UINT ProcessTargetDirectory(
+    _In_ LPWSTR SourcePath,
+    _In_ LPWSTR DestinationPath
+)
 {
     HANDLE h;
-    TCHAR temp[MAX_PATH] = { 0 };
-    TCHAR szSourceChildPath[MAX_PATH] = { 0 };
-    TCHAR szDestChildPath[MAX_PATH] = { 0 };
     WIN32_FIND_DATA data;
-    UINT    uResult = (UINT)-1;
+    UINT  uResult = (UINT)-1;
 
-    _strcpy(temp, szSourcePath);
-    _strcat(temp, TEXT("*.*"));
+    LPWSTR lpTemp = NULL, lpSourceChildPath = NULL, lpDestChildPath = NULL;
+    SIZE_T memIO, cDataLen, SourcePathLength, DestinationPathLength;
 
-    h = FindFirstFile(temp, &data); //temp = c:\windows\*.*
+    SourcePathLength = _strlen(SourcePath) * sizeof(WCHAR);
+    DestinationPathLength = _strlen(DestinationPath) * sizeof(WCHAR);
+
+    memIO = SourcePathLength + (MAX_PATH * sizeof(WCHAR));
+    lpTemp = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpTemp == NULL)
+        return uResult;
+
+    _strcpy(lpTemp, SourcePath);
+    _strcat(lpTemp, TEXT("*.*"));
+
+    h = FindFirstFile(lpTemp, &data); //lpTemp = c:\windows\*.*
     if (h != INVALID_HANDLE_VALUE) {
         do {
             if (IsDirWithWFD(data)) {
                 if (ValidDir(data)) {
-                    _strcpy(szSourceChildPath, szSourcePath);
-                    _strcat(szSourceChildPath, data.cFileName);
-                    _strcat(szSourceChildPath, TEXT("\\"));
 
-                    _strcpy(szDestChildPath, szDestinationPath);
-                    _strcat(szDestChildPath, data.cFileName);
-                    _strcat(szDestChildPath, TEXT("\\"));
+                    cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
+                    memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                    lpSourceChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
-                    if (!CreateDirectory(szDestChildPath, NULL) && !PathFileExists(szDestChildPath)) {
-                        cuiPrintText(g_ConOut, TEXT("SXSEXP: unable to create directory "), g_ConsoleOutput, FALSE);
-                        cuiPrintText(g_ConOut, szDestChildPath, g_ConsoleOutput, TRUE);
-                        return -1;
+                    memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                    lpDestChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+
+                    if (lpSourceChildPath && lpDestChildPath) {
+
+                        _strcpy(lpSourceChildPath, SourcePath);
+                        _strcat(lpSourceChildPath, data.cFileName);
+                        _strcat(lpSourceChildPath, TEXT("\\"));
+
+                        _strcpy(lpDestChildPath, DestinationPath);
+                        _strcat(lpDestChildPath, data.cFileName);
+                        _strcat(lpDestChildPath, TEXT("\\"));
+
+                        if (!CreateDirectory(lpDestChildPath, NULL) && !PathFileExists(lpDestChildPath)) {
+                            cuiPrintText(g_ConOut, TEXT("SXSEXP: unable to create directory "), g_ConsoleOutput, FALSE);
+                            cuiPrintText(g_ConOut, lpDestChildPath, g_ConsoleOutput, TRUE);
+                            uResult = -1;
+                            break;
+                        }
+                        uResult = ProcessTargetDirectory(lpSourceChildPath, lpDestChildPath);
+
+                        HeapFree(g_Heap, 0, lpDestChildPath);
+                        HeapFree(g_Heap, 0, lpSourceChildPath);
                     }
-                    uResult = ProcessTargetDirectory(szSourceChildPath, szDestChildPath);
                 }
             }
             else {
-                _strcpy(szSourceChildPath, szSourcePath);
-                _strcat(szSourceChildPath, data.cFileName);
+                cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
+                memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                lpSourceChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
-                _strcpy(szDestChildPath, szDestinationPath);
-                _strcat(szDestChildPath, data.cFileName);
+                memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                lpDestChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
-                uResult = ProcessTargetFileAndWriteOutput(szSourceChildPath, szDestChildPath);
+                if (lpSourceChildPath && lpDestChildPath) {
+
+                    _strcpy(lpSourceChildPath, SourcePath);
+                    _strcat(lpSourceChildPath, data.cFileName);
+
+                    _strcpy(lpDestChildPath, DestinationPath);
+                    _strcat(lpDestChildPath, data.cFileName);
+
+                    uResult = ProcessTargetFileAndWriteOutput(lpSourceChildPath, lpDestChildPath);
+
+                    HeapFree(g_Heap, 0, lpDestChildPath);
+                    HeapFree(g_Heap, 0, lpSourceChildPath);
+                }
             }
+
         } while (FindNextFile(h, &data));
+
         FindClose(h);
     }
+
+    HeapFree(g_Heap, 0, lpTemp);
     return uResult;
 }
 
-UINT ProcessTargetPath(LPWSTR szSourcePath, LPWSTR szDestinationPath)
+/*
+* ProcessTargetPath
+*
+* Purpose:
+*
+* Expand files in given directory and subdirectories or just a file.
+*
+*/
+UINT ProcessTargetPath(
+    _In_ LPWSTR SourcePath,
+    _In_ LPWSTR DestinationPath
+)
 {
-    TCHAR szSourceTempPath[MAX_PATH] = { 0 };
-    TCHAR szDestTempPath[MAX_PATH] = { 0 };
-    _strcpy(szSourceTempPath, szSourcePath);
-    _strcpy(szDestTempPath, szDestinationPath);
+    LPWSTR lpSourceTempPath, lpDestTempPath;
+    SIZE_T memIO;
+    UINT uResult = (UINT)-1;
 
-    if (IsDir(szSourceTempPath) && IsDir(szDestTempPath)) {
-        if (szSourceTempPath[_strlen(szSourceTempPath) - 1] != TEXT('\\'))
-            _strcat(szSourceTempPath, TEXT("\\"));
-        
-        if (szDestTempPath[_strlen(szDestTempPath) - 1] != TEXT('\\'))
-            _strcat(szDestTempPath, TEXT("\\"));
+    memIO = (MAX_PATH + _strlen(SourcePath)) * sizeof(WCHAR);
+    lpSourceTempPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpSourceTempPath == NULL)
+        return uResult;
 
-        return ProcessTargetDirectory(szSourceTempPath, szDestTempPath);
+    memIO = (MAX_PATH + _strlen(DestinationPath)) * sizeof(WCHAR);
+    lpDestTempPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpDestTempPath == NULL) {
+        HeapFree(g_Heap, 0, lpSourceTempPath);
+        return uResult;
     }
-    else if (!IsDir(szSourceTempPath)) {
-        return ProcessTargetFileAndWriteOutput(szSourceTempPath, szDestTempPath);
+
+    _strcpy(lpSourceTempPath, SourcePath);
+    _strcpy(lpDestTempPath, DestinationPath);
+
+    if (IsDir(lpSourceTempPath) && IsDir(lpDestTempPath)) {
+
+        if (lpSourceTempPath[_strlen(lpSourceTempPath) - 1] != TEXT('\\'))
+            _strcat(lpSourceTempPath, TEXT("\\"));
+
+        if (lpDestTempPath[_strlen(lpDestTempPath) - 1] != TEXT('\\'))
+            _strcat(lpDestTempPath, TEXT("\\"));
+
+        uResult = ProcessTargetDirectory(lpSourceTempPath, lpDestTempPath);
+    }
+    else if (!IsDir(lpSourceTempPath)) {
+        uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
     }
     else {
         cuiPrintText(g_ConOut, TEXT("SXSEXP: invalid paths specified"), g_ConsoleOutput, TRUE);
-        return -1;
+        uResult = (UINT)-1;
+    }
+
+    HeapFree(g_Heap, 0, lpSourceTempPath);
+    HeapFree(g_Heap, 0, lpDestTempPath);
+
+    return uResult;
+}
+
+/*
+* DCDMode
+*
+* Purpose:
+*
+* Special routine to process DCD file type as it requires special approach.
+*
+*/
+VOID DCDMode(
+    _In_ LPWSTR lpCmdLine
+)
+{
+    DWORD   dwTmp = 0;
+
+    PVOID   OutputBuffer = NULL;
+    SIZE_T  OutputBufferSize = 0;
+
+    WCHAR   szSourcePath[MAX_PATH + 1];
+    WCHAR   szSourceDeltaPath[MAX_PATH + 1];
+    WCHAR   szDestinationPath[MAX_PATH + 1];
+
+    //
+    // Source File.
+    //
+    RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
+    GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp);
+    if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
+        cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Path not found"), g_ConsoleOutput, TRUE);
+        return;
+    }
+
+    //
+    //  Source Delta File.
+    //
+    RtlSecureZeroMemory(szSourceDeltaPath, sizeof(szSourceDeltaPath));
+    GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp);
+    if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
+        cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Delta Path not found"), g_ConsoleOutput, TRUE);
+        return;
+    }
+
+    //
+    //  Destination File.
+    //
+    RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
+    GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp);
+    if (dwTmp == 0) {
+        cuiPrintText(g_ConOut, TEXT("SXSEXP: Destination Path not specified"), g_ConsoleOutput, TRUE);
+        return;
+    }
+
+    if (ProcessTargetFile(szSourceDeltaPath, &OutputBuffer, &OutputBufferSize, szSourcePath)) {
+        if (supWriteBufferToFile(szDestinationPath, OutputBuffer, (DWORD)OutputBufferSize)) {
+            cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
+        }
+        else {
+            cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
+            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+        }
+        if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
     }
 }
 
@@ -989,11 +1176,16 @@ void main()
     UINT    uResult = (UINT)-1;
     LPWSTR  lpCmdLine;
     WCHAR   szBuffer[MAX_PATH * 2];
-    WCHAR   szSourcePath[MAX_PATH], szDestinationPath[MAX_PATH];
+    WCHAR   szSourcePath[MAX_PATH + 1], szDestinationPath[MAX_PATH + 1];
 
     __security_init_cookie();
 
     do {
+
+        g_Heap = HeapCreate(HEAP_GROWABLE, 0, 0);
+        if (g_Heap == NULL)
+            break;
+
         g_ConOut = GetStdHandle(STD_OUTPUT_HANDLE);
         if (g_ConOut == INVALID_HANDLE_VALUE) {
             break;
@@ -1019,13 +1211,11 @@ void main()
                 break;
             }
 
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (_strcmpi(szBuffer, L"/v") == 0) {
-                g_VerboseOutput = TRUE;
-                paramId++;
-                GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp);
+            if (_strcmpi(szBuffer, L"/d") == 0) {
+                DCDMode(lpCmdLine);
+                break;
             }
-#endif
+
             RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
             _strncpy(szSourcePath, MAX_PATH, szBuffer, MAX_PATH);
 
@@ -1043,12 +1233,8 @@ void main()
                 break;
             }
 
-#ifdef ENABLE_VERBOSE_OUTPUT
-            if (g_VerboseOutput) {
-                cuiPrintText(g_ConOut, TEXT("Processing target path\t"), g_ConsoleOutput, FALSE);
-                cuiPrintText(g_ConOut, szSourcePath, g_ConsoleOutput, TRUE);
-            }
-#endif
+            cuiPrintText(g_ConOut, TEXT("Processing target path\t"), g_ConsoleOutput, FALSE);
+            cuiPrintText(g_ConOut, szSourcePath, g_ConsoleOutput, TRUE);
 
             RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
             if (GetSystemDirectory(szBuffer, MAX_PATH) == 0) {
@@ -1076,6 +1262,9 @@ void main()
 
     if (hCabinetDll != NULL)
         FreeLibrary(hCabinetDll);
+
+    if (g_Heap != NULL)
+        HeapDestroy(g_Heap);
 
     ExitProcess(uResult);
 }

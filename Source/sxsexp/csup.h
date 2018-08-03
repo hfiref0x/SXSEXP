@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016
+*  (C) COPYRIGHT AUTHORS, 2016 - 2018
 *
 *  TITLE:       CSUP.H
 *
-*  VERSION:     1.10
+*  VERSION:     1.30
 *
-*  DATE:        14 June 2016
+*  DATE:        30 July 2018
 *
 *  Support routines header file.
 *
@@ -43,6 +43,19 @@ typedef struct _DCM_HEADER {
     BYTE Data[1]; //Intra Package Delta, need wcp manifest to unpack
 } DCM_HEADER, *PDCM_HEADER;
 
+typedef struct _DCD_HEADER {
+    DWORD Signature; //DCD v1
+    DWORD Unknown1;
+    DWORD Unknown2;
+    BYTE Data[1]; //Intra Package Delta
+} DCD_HEADER, *PDCD_HEADER;
+
+typedef struct _DCH_HEADER {
+    DWORD Signature; //DCH v1
+    DWORD Unknown1;
+    DWORD Unknown2;
+} DCH_HEADER, *PDCH_HEADER;
+
 typedef struct _DCS_HEADER {
     DWORD Signature; //DCS v1
     DWORD NumberOfBlocks;
@@ -57,33 +70,46 @@ typedef struct _DCS_BLOCK {
 } DCS_BLOCK, *PDCS_BLOCK;
 
 CFILE_TYPE GetTargetFileType(
-    VOID *FileBuffer
+    _In_ VOID *FileBuffer
 );
 
+_Success_(return == TRUE)
 BOOL ProcessFileMZ(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
 );
 
+_Success_(return == TRUE)
 BOOL ProcessFileDCN(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
 );
 
+_Success_(return == TRUE)
 BOOL ProcessFileDCS(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
 );
 
+_Success_(return == TRUE)
 BOOL ProcessFileDCM(
-    PVOID SourceFile,
-    SIZE_T SourceFileSize,
-    PVOID *OutputFileBuffer,
-    PSIZE_T OutputFileBufferSize
+    _In_ PVOID SourceFile,
+    _In_ SIZE_T SourceFileSize,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
+);
+
+_Success_(return == TRUE)
+BOOL ProcessFileDCD(
+    _In_ PVOID DeltaSourceFile,
+    _In_ SIZE_T DeltaSourceFileSize,
+    _In_ LPWSTR lpSourceFileName,
+    _Out_ PVOID *OutputFileBuffer,
+    _Out_ PSIZE_T OutputFileBufferSize
 );
