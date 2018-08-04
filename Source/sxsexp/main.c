@@ -6,7 +6,7 @@
 *
 *  VERSION:     1.30
 *
-*  DATE:        30 July 2018
+*  DATE:        31 July 2018
 *
 *  Program entry point.
 *
@@ -299,6 +299,10 @@ CFILE_TYPE GetTargetFileType(
 
         case 'D':
             Result = ftDCD;
+            break;
+
+        case 'H':
+            Result = ftDCH;
             break;
 
         case 'M':
