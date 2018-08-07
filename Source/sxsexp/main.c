@@ -4,9 +4,9 @@
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.30
+*  VERSION:     1.31
 *
-*  DATE:        31 July 2018
+*  DATE:        07 Aug 2018
 *
 *  Program entry point.
 *
@@ -20,9 +20,7 @@
 #include "global.h"
 #include "wcp.h"
 
-HANDLE     g_ConOut = NULL, g_Heap = NULL;
-BOOL       g_ConsoleOutput = FALSE;
-WCHAR      g_BE = 0xFEFF;
+HANDLE     g_Heap = NULL;
 
 BOOL       g_bCabinetInitSuccess = FALSE;
 
@@ -33,16 +31,16 @@ pfnCreateDecompressor pCreateDecompressor = NULL;
 pfnDecompress pDecompress = NULL;
 
 
-#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1/DCD1) expand utility v1.3.0")
+#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1/DCD1) expand utility v1.3.1")
 #define T_UNSUPFORMAT     TEXT("This format is not supported by this tool.")
 #define T_ERRORDELTA      TEXT("Error query delta info.")
 
 //
 // Help output.
 //
-#define T_HELP  L"Expand compressed files from WinSxS folder.\n\n\r\
-SXSEXP <Source File> <Destination File>\n\r\
-SXSEXP <Source Directory> <Destination Directory>\n\r\
+#define T_HELP  L"Expand compressed files from WinSxS folder.\r\n\n\
+SXSEXP <Source File> <Destination File>\r\n\
+SXSEXP <Source Directory> <Destination Directory>\r\n\
 SXSEXP /d <Source File> <Source Delta File> <Destination File>"
 
 #define PathFileExists(lpszPath) (GetFileAttributes(lpszPath) != (DWORD)-1)
@@ -96,11 +94,11 @@ VOID PrintDeltaHeaderInfo(
     SIZE_T  l;
     WCHAR   szBuffer[MAX_PATH * 2];
 
-    cuiPrintText(g_ConOut, TEXT("\n\rDELTA_HEADER_INFO\n\r"), g_ConsoleOutput, TRUE);
+    cuiPrintText(TEXT("\r\nDELTA_HEADER_INFO\r\n"), TRUE);
 
     _strcpy(szBuffer, TEXT(" FileTypeSet\t\t"));
     u64tohex(pdhi->FileTypeSet, _strend(szBuffer));
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" FileType\t\t"));
     u64tohex(pdhi->FileType, _strend(szBuffer));
@@ -139,11 +137,11 @@ VOID PrintDeltaHeaderInfo(
         break;
     }
 
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" Flags\t\t\t"));
     u64tohex(pdhi->Flags, _strend(szBuffer));
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" TargetSize\t\t"));
 
@@ -152,24 +150,24 @@ VOID PrintDeltaHeaderInfo(
 #else
     ultohex(pdhi->TargetSize, _strend(szBuffer));
 #endif
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" TargetFileTime\t\t"));
     ultohex(pdhi->TargetFileTime.dwLowDateTime, _strend(szBuffer));
     _strcat(szBuffer, TEXT(":"));
     ultohex(pdhi->TargetFileTime.dwHighDateTime, _strend(szBuffer));
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" TargetHashAlgId\t"));
     ultohex(pdhi->TargetHashAlgId, _strend(szBuffer));
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     _strcpy(szBuffer, TEXT(" TargetHash->HashSize\t"));
     ultohex(pdhi->TargetHash.HashSize, _strend(szBuffer));
-    cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+    cuiPrintText(szBuffer, TRUE);
 
     if (pdhi->TargetHash.HashSize > DELTA_MAX_HASH_SIZE) {
-        cuiPrintText(g_ConOut, TEXT("\n\rHash size exceed DELTA_MAX_HASH_SIZE."), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("\r\nHash size exceed DELTA_MAX_HASH_SIZE."), TRUE);
     }
     else {
         if (pdhi->TargetHash.HashSize > 0) {
@@ -178,7 +176,7 @@ VOID PrintDeltaHeaderInfo(
             for (i = 0, j = 0; i < pdhi->TargetHash.HashSize; i++, j += 2) {
                 wsprintf(&szBuffer[l + j], L"%02x", pdhi->TargetHash.HashValue[i]);
             }
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            cuiPrintText(szBuffer, TRUE);
         }
     }
 
@@ -208,8 +206,7 @@ VOID PrintDataHeader(
     switch (ft) {
 
     case ftDCD:
-        cuiPrintText(g_ConOut,
-            TEXT("\n\rDCD_HEADER found, querying delta info.\n\r"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("\r\nDCD_HEADER found, querying delta info.\r\n"), TRUE);
 
         pDCD = (PDCD_HEADER)MappedFile;
 
@@ -218,7 +215,7 @@ VOID PrintDataHeader(
         Delta.uSize = SourceFileSize - 12;  //size without header specific fields
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
-            cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
+            cuiPrintText(T_ERRORDELTA, TRUE);
             break;
         }
 
@@ -230,11 +227,9 @@ VOID PrintDataHeader(
     case ftDCM:
 
         if (ft == ftDCN)
-            cuiPrintText(g_ConOut,
-                TEXT("\n\rDCN_HEADER found, querying delta info.\n\r"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nDCN_HEADER found, querying delta info.\r\n"), TRUE);
         else
-            cuiPrintText(g_ConOut,
-                TEXT("\n\rDCM_HEADER found, querying delta info.\n\r"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nDCM_HEADER found, querying delta info.\r\n"), TRUE);
 
         pDCN = (PDCN_HEADER)MappedFile;
 
@@ -243,7 +238,7 @@ VOID PrintDataHeader(
         Delta.uSize = SourceFileSize - 4; //size without header
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
-            cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
+            cuiPrintText(T_ERRORDELTA, TRUE);
             break;
         }
 
@@ -256,15 +251,15 @@ VOID PrintDataHeader(
 
         pDCS = (PDCS_HEADER)MappedFile;
 
-        cuiPrintText(g_ConOut, TEXT("\n\rDCS_HEADER found.\n\r"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("\r\nDCS_HEADER found.\r\n"), TRUE);
 
         _strcpy(szBuffer, TEXT(" NumberOfBlocks\t\t"));
         ultostr(pDCS->NumberOfBlocks, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+        cuiPrintText(szBuffer, TRUE);
 
         _strcpy(szBuffer, TEXT(" UncompressedFileSize\t"));
         ultostr(pDCS->UncompressedFileSize, _strend(szBuffer));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+        cuiPrintText(szBuffer, TRUE);
         break;
 
     default:
@@ -406,7 +401,7 @@ BOOL ProcessFileDCN(
         Delta.uSize = SourceFileSize - 4; //(size - signature)
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
-            cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
+            cuiPrintText(T_ERRORDELTA, TRUE);
             SetLastError(ERROR_BAD_FORMAT);
             break;
         }
@@ -474,19 +469,19 @@ BOOL ProcessFileDCD(
             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 
         if (hFile == INVALID_HANDLE_VALUE) {
-            cuiPrintText(g_ConOut, TEXT("Error openning source file: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error openning source file: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         if (!GetFileSizeEx(hFile, &FileSize)) {
-            cuiPrintText(g_ConOut, TEXT("Error query source file size: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error query source file size: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         if ((FileSize.QuadPart  < 12) || (FileSize.QuadPart  > 2147483648ll)) {
-            cuiPrintText(g_ConOut, TEXT("Invalid file size."), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Invalid file size."), TRUE);
             break;
         }
 
@@ -494,14 +489,14 @@ BOOL ProcessFileDCD(
             MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
         if (SourceFileBuffer == NULL) {
-            cuiPrintText(g_ConOut, TEXT("Cannot allocate memory for this operation: "), g_ConsoleOutput, TRUE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Cannot allocate memory for this operation: "), TRUE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         if (!ReadFile(hFile, SourceFileBuffer, FileSize.LowPart, &bytesIO, NULL)) {
-            cuiPrintText(g_ConOut, TEXT("Error reading source file: "), g_ConsoleOutput, TRUE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error reading source file: "), TRUE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
@@ -575,26 +570,26 @@ BOOL ProcessFileDCS(
         SetLastError(0);
 
         if (!pCreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
-            cuiPrintText(g_ConOut, TEXT("\n\rError, while creating decompressor: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nError, while creating decompressor: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         if (FileHeader->UncompressedFileSize == 0) {
-            cuiPrintText(g_ConOut, TEXT("\n\rError, UncompressedFileSize is 0"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nError, UncompressedFileSize is 0"), TRUE);
             break;
 
         }
 
         if (FileHeader->NumberOfBlocks == 0) {
-            cuiPrintText(g_ConOut, TEXT("\n\rError, NumberOfBlocks is 0"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nError, NumberOfBlocks is 0"), TRUE);
             break;
         }
 
         DataBuffer = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
         if (DataBuffer == NULL) {
-            cuiPrintText(g_ConOut, TEXT("\n\rError, memory allocation failed: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("\r\nError, memory allocation failed: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
@@ -609,32 +604,30 @@ BOOL ProcessFileDCS(
         while (NumberOfBlocks > 0) {
 
             RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
-            _strcpy(szBuffer, TEXT("\n\rDCS_BLOCK #"));
+            _strcpy(szBuffer, TEXT("\r\nDCS_BLOCK #"));
             ultostr(i++, _strend(szBuffer));
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            cuiPrintText(szBuffer, TRUE);
 
             _strcpy(szBuffer, TEXT(" Block->CompressedBlockSize\t"));
             ultohex(Block->CompressedBlockSize, _strend(szBuffer));
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            cuiPrintText(szBuffer, TRUE);
 
             _strcpy(szBuffer, TEXT(" Block->DecompressedBlockSize\t"));
             ultohex(Block->DecompressedBlockSize, _strend(szBuffer));
-            cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+            cuiPrintText(szBuffer, TRUE);
 
             if (BytesRead + Block->CompressedBlockSize > SourceFileSize) {
 
-                cuiPrintText(g_ConOut,
-                    TEXT("\n\rError, compressed data size is bigger than file size."),
-                    g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("\r\nError, compressed data size is bigger than file size."),
+                    TRUE);
 
                 break;
             }
 
             if (BytesDecompressed + Block->DecompressedBlockSize > FileHeader->UncompressedFileSize) {
 
-                cuiPrintText(g_ConOut,
-                    TEXT("\n\rError, uncompressed data size is bigger than known uncompressed file size."),
-                    g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("\r\nError, uncompressed data size is bigger than known uncompressed file size."),
+                    TRUE);
 
                 break;
             }
@@ -647,8 +640,8 @@ BOOL ProcessFileDCS(
                 NULL);
 
             if (!bResult) {
-                cuiPrintText(g_ConOut, TEXT("\n\rError, decompression failure: "), g_ConsoleOutput, FALSE);
-                cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("\r\nError, decompression failure: "), FALSE);
+                cuiPrintTextLastError(TRUE);
                 break;
             }
 
@@ -706,7 +699,7 @@ BOOL ProcessFileDCM(
         Delta.uSize = SourceFileSize - 4;
         Delta.Editable = FALSE;
         if (!GetDeltaInfoB(Delta, &dhi)) {
-            cuiPrintText(g_ConOut, T_ERRORDELTA, g_ConsoleOutput, TRUE);
+            cuiPrintText(T_ERRORDELTA, TRUE);
             SetLastError(ERROR_BAD_FORMAT);
             break;
         }
@@ -776,15 +769,15 @@ BOOL ProcessTargetFile(
             0, NULL);
 
         if (hFile == INVALID_HANDLE_VALUE) {
-            cuiPrintText(g_ConOut, TEXT("Error openning source file: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error openning source file: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         FileSize.QuadPart = 0;
         if (!GetFileSizeEx(hFile, &FileSize)) {
-            cuiPrintText(g_ConOut, TEXT("Error query file size: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error query file size: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
@@ -792,30 +785,30 @@ BOOL ProcessTargetFile(
         _strcpy(szBuffer, TEXT("File size\t\t"));
         ultostr(FileSize.LowPart, _strend(szBuffer));
         _strcat(szBuffer, TEXT(" bytes"));
-        cuiPrintText(g_ConOut, szBuffer, g_ConsoleOutput, TRUE);
+        cuiPrintText(szBuffer, TRUE);
 
         if (FileSize.QuadPart < 8) {
-            cuiPrintText(g_ConOut, TEXT("File size is too small."), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("File size is too small."), TRUE);
             break;
         }
 
         hFileMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
         if (hFileMapping == NULL) {
-            cuiPrintText(g_ConOut, TEXT("File mapping error: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("File mapping error: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         MappedFile = MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
         if (MappedFile == NULL) {
-            cuiPrintText(g_ConOut, TEXT("Map view of file error: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Map view of file error: "), FALSE);
+            cuiPrintTextLastError(TRUE);
             break;
         }
 
         ft = GetTargetFileType(MappedFile);
         if (ft == ftUnknown) {
-            cuiPrintText(g_ConOut, TEXT("File format is unknown."), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("File format is unknown."), TRUE);
             break;
         }
 
@@ -823,17 +816,17 @@ BOOL ProcessTargetFile(
 
         case ftMZ:
             bResult = ProcessFileMZ(MappedFile, FileSize.LowPart, OutputFileBuffer, OutputFileBufferSize);
-            cuiPrintText(g_ConOut, TEXT("FileType: MZ, file will be copied"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("FileType: MZ, file will be copied"), TRUE);
             break;
 
         case ftDCH:
-            cuiPrintText(g_ConOut, TEXT("FileType: DCH1 "), g_ConsoleOutput, FALSE);
-            cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("FileType: DCH1 "), FALSE);
+            cuiPrintText(T_UNSUPFORMAT, TRUE);
             break;
 
         case ftDCX:
-            cuiPrintText(g_ConOut, TEXT("FileType: DCX1 "), g_ConsoleOutput, FALSE);
-            cuiPrintText(g_ConOut, T_UNSUPFORMAT, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("FileType: DCX1 "), FALSE);
+            cuiPrintText(T_UNSUPFORMAT, TRUE);
             break;
 
         case ftDCD:
@@ -856,7 +849,7 @@ BOOL ProcessTargetFile(
         case ftDCS:
 
             if (g_bCabinetInitSuccess == FALSE) {
-                cuiPrintText(g_ConOut, TEXT("\n\rRequired Cabinet API are missing, cannot decompress this file."), g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("\r\nRequired Cabinet API are missing, cannot decompress this file."), TRUE);
                 break;
             }
 
@@ -928,19 +921,19 @@ UINT ProcessTargetFileAndWriteOutput(
     SIZE_T  OutputBufferSize = 0;
     UINT    uResult = (UINT)-1;
 
-    cuiPrintText(g_ConOut, szSourceFile, g_ConsoleOutput, FALSE);
-    cuiPrintText(g_ConOut, TEXT(" => "), g_ConsoleOutput, FALSE);
-    cuiPrintText(g_ConOut, szDestinationFile, g_ConsoleOutput, TRUE);
+    cuiPrintText(szSourceFile, FALSE);
+    cuiPrintText(TEXT(" => "), FALSE);
+    cuiPrintText(szDestinationFile, TRUE);
 
     if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize, NULL)) {
         uResult = 0;
 
         if (supWriteBufferToFile(szDestinationFile, OutputBuffer, (DWORD)OutputBufferSize)) {
-            cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Operation Successful"), TRUE);
         }
         else {
-            cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error, write file: "), FALSE);
+            cuiPrintTextLastError(TRUE);
         }
         if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
     }
@@ -1002,8 +995,8 @@ UINT ProcessTargetDirectory(
                         _strcat(lpDestChildPath, TEXT("\\"));
 
                         if (!CreateDirectory(lpDestChildPath, NULL) && !PathFileExists(lpDestChildPath)) {
-                            cuiPrintText(g_ConOut, TEXT("SXSEXP: unable to create directory "), g_ConsoleOutput, FALSE);
-                            cuiPrintText(g_ConOut, lpDestChildPath, g_ConsoleOutput, TRUE);
+                            cuiPrintText(TEXT("SXSEXP: unable to create directory "), FALSE);
+                            cuiPrintText(lpDestChildPath, TRUE);
                             uResult = -1;
                             break;
                         }
@@ -1092,7 +1085,7 @@ UINT ProcessTargetPath(
         uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
     }
     else {
-        cuiPrintText(g_ConOut, TEXT("SXSEXP: invalid paths specified"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("SXSEXP: invalid paths specified"), TRUE);
         uResult = (UINT)-1;
     }
 
@@ -1129,7 +1122,7 @@ VOID DCDMode(
     RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
     GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp);
     if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
-        cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Path not found"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("SXSEXP: Source Path not found"), TRUE);
         return;
     }
 
@@ -1139,7 +1132,7 @@ VOID DCDMode(
     RtlSecureZeroMemory(szSourceDeltaPath, sizeof(szSourceDeltaPath));
     GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp);
     if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
-        cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Delta Path not found"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("SXSEXP: Source Delta Path not found"), TRUE);
         return;
     }
 
@@ -1149,17 +1142,17 @@ VOID DCDMode(
     RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
     GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp);
     if (dwTmp == 0) {
-        cuiPrintText(g_ConOut, TEXT("SXSEXP: Destination Path not specified"), g_ConsoleOutput, TRUE);
+        cuiPrintText(TEXT("SXSEXP: Destination Path not specified"), TRUE);
         return;
     }
 
     if (ProcessTargetFile(szSourceDeltaPath, &OutputBuffer, &OutputBufferSize, szSourcePath)) {
         if (supWriteBufferToFile(szDestinationPath, OutputBuffer, (DWORD)OutputBufferSize)) {
-            cuiPrintText(g_ConOut, TEXT("Operation Successful"), g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Operation Successful"), TRUE);
         }
         else {
-            cuiPrintText(g_ConOut, TEXT("Error, write file: "), g_ConsoleOutput, FALSE);
-            cuiPrintTextLastError(g_ConOut, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Error, write file: "), FALSE);
+            cuiPrintTextLastError(TRUE);
         }
         if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
     }
@@ -1190,28 +1183,15 @@ void main()
         if (g_Heap == NULL)
             break;
 
-        g_ConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        if (g_ConOut == INVALID_HANDLE_VALUE) {
-            break;
-        }
-
-        g_ConsoleOutput = TRUE;
-        if (!GetConsoleMode(g_ConOut, &dwTmp)) {
-            g_ConsoleOutput = FALSE;
-        }
-
+        cuiInitialize(FALSE, NULL);
         SetConsoleTitle(T_PROGRAMTITLE);
-        SetConsoleMode(g_ConOut, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_OUTPUT);
-        if (g_ConsoleOutput == FALSE) {
-            WriteFile(g_ConOut, &g_BE, sizeof(WCHAR), &dwTmp, NULL);
-        }
 
         lpCmdLine = GetCommandLine();
         RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
         GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp);
         if (dwTmp > 0) {
             if (_strcmpi(szBuffer, L"/?") == 0) {
-                cuiPrintText(g_ConOut, T_HELP, g_ConsoleOutput, TRUE);
+                cuiPrintText(T_HELP, TRUE);
                 break;
             }
 
@@ -1224,7 +1204,7 @@ void main()
             _strncpy(szSourcePath, MAX_PATH, szBuffer, MAX_PATH);
 
             if (!PathFileExists(szSourcePath)) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Source Path not found"), g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("SXSEXP: Source Path not found"), TRUE);
                 break;
             }
 
@@ -1233,16 +1213,16 @@ void main()
             RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
             GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp);
             if (dwTmp == 0) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Destination Path not specified"), g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("SXSEXP: Destination Path not specified"), TRUE);
                 break;
             }
 
-            cuiPrintText(g_ConOut, TEXT("Processing target path\t"), g_ConsoleOutput, FALSE);
-            cuiPrintText(g_ConOut, szSourcePath, g_ConsoleOutput, TRUE);
+            cuiPrintText(TEXT("Processing target path\t"), FALSE);
+            cuiPrintText(szSourcePath, TRUE);
 
             RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
             if (GetSystemDirectory(szBuffer, MAX_PATH) == 0) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Could not query Windows directory"), g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("SXSEXP: Could not query Windows directory"), TRUE);
                 break;
             }
             else {
@@ -1250,7 +1230,7 @@ void main()
             }
             hCabinetDll = LoadLibrary(szBuffer);
             if (hCabinetDll == NULL) {
-                cuiPrintText(g_ConOut, TEXT("SXSEXP: Error loading Cabinet.dll"), g_ConsoleOutput, TRUE);
+                cuiPrintText(TEXT("SXSEXP: Error loading Cabinet.dll"), TRUE);
                 break;
             }
 
@@ -1259,7 +1239,7 @@ void main()
             uResult = ProcessTargetPath(szSourcePath, szDestinationPath);
         }
         else {
-            cuiPrintText(g_ConOut, T_HELP, g_ConsoleOutput, TRUE);
+            cuiPrintText(T_HELP, TRUE);
         }
 
     } while (cond);
