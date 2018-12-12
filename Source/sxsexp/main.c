@@ -4,9 +4,9 @@
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.31
+*  VERSION:     1.32
 *
-*  DATE:        07 Aug 2018
+*  DATE:        04 Dec 2018
 *
 *  Program entry point.
 *
@@ -24,14 +24,14 @@ HANDLE     g_Heap = NULL;
 
 BOOL       g_bCabinetInitSuccess = FALSE;
 
-HANDLE     hCabinetDll = NULL;
+HMODULE    hCabinetDll = NULL;
 
 pfnCloseDecompressor pCloseDecompressor = NULL;
 pfnCreateDecompressor pCreateDecompressor = NULL;
 pfnDecompress pDecompress = NULL;
 
 
-#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1/DCD1) expand utility v1.3.1")
+#define T_PROGRAMTITLE    TEXT("WinSxS files (DCN1/DCM1/DCS1/DCD1) expand utility v1.3.2")
 #define T_UNSUPFORMAT     TEXT("This format is not supported by this tool.")
 #define T_ERRORDELTA      TEXT("Error query delta info.")
 
@@ -561,8 +561,10 @@ BOOL ProcessFileDCS(
     PDCS_HEADER FileHeader = (PDCS_HEADER)SourceFile;
     PDCS_BLOCK Block;
 
+    SIZE_T BytesRead;
+
     DWORD NumberOfBlocks = 0, i;
-    DWORD BytesRead, BytesDecompressed, NextOffset;
+    DWORD BytesDecompressed, NextOffset;
 
     WCHAR szBuffer[MAX_PATH];
 
@@ -586,7 +588,7 @@ BOOL ProcessFileDCS(
             break;
         }
 
-        DataBuffer = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
+        DataBuffer = (BYTE*)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, FileHeader->UncompressedFileSize);
         if (DataBuffer == NULL) {
             cuiPrintText(TEXT("\r\nError, memory allocation failed: "), FALSE);
             cuiPrintTextLastError(TRUE);
@@ -799,7 +801,7 @@ BOOL ProcessTargetFile(
             break;
         }
 
-        MappedFile = MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
+        MappedFile = (PDWORD)MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
         if (MappedFile == NULL) {
             cuiPrintText(TEXT("Map view of file error: "), FALSE);
             cuiPrintTextLastError(TRUE);
@@ -865,7 +867,7 @@ BOOL ProcessTargetFile(
     } while (bCond);
 
     if (MappedFile != NULL)
-        UnmapViewOfFile(MappedFile);
+        UnmapViewOfFile((LPCVOID)MappedFile);
 
     if (hFileMapping != NULL)
         CloseHandle(hFileMapping);
@@ -919,15 +921,13 @@ UINT ProcessTargetFileAndWriteOutput(
 {
     PVOID   OutputBuffer = NULL;
     SIZE_T  OutputBufferSize = 0;
-    UINT    uResult = (UINT)-1;
+    UINT    uResult = ERROR_SUCCESS;
 
     cuiPrintText(szSourceFile, FALSE);
     cuiPrintText(TEXT(" => "), FALSE);
     cuiPrintText(szDestinationFile, TRUE);
 
     if (ProcessTargetFile(szSourceFile, &OutputBuffer, &OutputBufferSize, NULL)) {
-        uResult = 0;
-
         if (supWriteBufferToFile(szDestinationFile, OutputBuffer, (DWORD)OutputBufferSize)) {
             cuiPrintText(TEXT("Operation Successful"), TRUE);
         }
@@ -936,6 +936,9 @@ UINT ProcessTargetFileAndWriteOutput(
             cuiPrintTextLastError(TRUE);
         }
         if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
+    }
+    else {
+        uResult = ERROR_INTERNAL_ERROR;
     }
     return uResult;
 }
@@ -955,7 +958,7 @@ UINT ProcessTargetDirectory(
 {
     HANDLE h;
     WIN32_FIND_DATA data;
-    UINT  uResult = (UINT)-1;
+    UINT  uResult = ERROR_SUCCESS;
 
     LPWSTR lpTemp = NULL, lpSourceChildPath = NULL, lpDestChildPath = NULL;
     SIZE_T memIO, cDataLen, SourcePathLength, DestinationPathLength;
@@ -964,9 +967,9 @@ UINT ProcessTargetDirectory(
     DestinationPathLength = _strlen(DestinationPath) * sizeof(WCHAR);
 
     memIO = SourcePathLength + (MAX_PATH * sizeof(WCHAR));
-    lpTemp = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    lpTemp = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
     if (lpTemp == NULL)
-        return uResult;
+        return ERROR_OUTOFMEMORY;
 
     _strcpy(lpTemp, SourcePath);
     _strcat(lpTemp, TEXT("*.*"));
@@ -979,10 +982,10 @@ UINT ProcessTargetDirectory(
 
                     cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
                     memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
-                    lpSourceChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+                    lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
                     memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
-                    lpDestChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+                    lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
                     if (lpSourceChildPath && lpDestChildPath) {
 
@@ -997,7 +1000,7 @@ UINT ProcessTargetDirectory(
                         if (!CreateDirectory(lpDestChildPath, NULL) && !PathFileExists(lpDestChildPath)) {
                             cuiPrintText(TEXT("SXSEXP: unable to create directory "), FALSE);
                             cuiPrintText(lpDestChildPath, TRUE);
-                            uResult = -1;
+                            uResult = ERROR_DIRECTORY;
                             break;
                         }
                         uResult = ProcessTargetDirectory(lpSourceChildPath, lpDestChildPath);
@@ -1010,10 +1013,10 @@ UINT ProcessTargetDirectory(
             else {
                 cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
                 memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
-                lpSourceChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+                lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
                 memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
-                lpDestChildPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+                lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
 
                 if (lpSourceChildPath && lpDestChildPath) {
 
@@ -1054,18 +1057,18 @@ UINT ProcessTargetPath(
 {
     LPWSTR lpSourceTempPath, lpDestTempPath;
     SIZE_T memIO;
-    UINT uResult = (UINT)-1;
+    UINT uResult = ERROR_SUCCESS;
 
     memIO = (MAX_PATH + _strlen(SourcePath)) * sizeof(WCHAR);
-    lpSourceTempPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    lpSourceTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
     if (lpSourceTempPath == NULL)
-        return uResult;
+        return ERROR_OUTOFMEMORY;
 
     memIO = (MAX_PATH + _strlen(DestinationPath)) * sizeof(WCHAR);
-    lpDestTempPath = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    lpDestTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
     if (lpDestTempPath == NULL) {
         HeapFree(g_Heap, 0, lpSourceTempPath);
-        return uResult;
+        return ERROR_OUTOFMEMORY;
     }
 
     _strcpy(lpSourceTempPath, SourcePath);
@@ -1086,7 +1089,7 @@ UINT ProcessTargetPath(
     }
     else {
         cuiPrintText(TEXT("SXSEXP: invalid paths specified"), TRUE);
-        uResult = (UINT)-1;
+        uResult = ERROR_INVALID_PARAMETER;
     }
 
     HeapFree(g_Heap, 0, lpSourceTempPath);
@@ -1103,7 +1106,7 @@ UINT ProcessTargetPath(
 * Special routine to process DCD file type as it requires special approach.
 *
 */
-VOID DCDMode(
+UINT DCDMode(
     _In_ LPWSTR lpCmdLine
 )
 {
@@ -1111,6 +1114,8 @@ VOID DCDMode(
 
     PVOID   OutputBuffer = NULL;
     SIZE_T  OutputBufferSize = 0;
+
+    UINT    uResult = ERROR_SUCCESS;
 
     WCHAR   szSourcePath[MAX_PATH + 1];
     WCHAR   szSourceDeltaPath[MAX_PATH + 1];
@@ -1123,7 +1128,7 @@ VOID DCDMode(
     GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp);
     if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
         cuiPrintText(TEXT("SXSEXP: Source Path not found"), TRUE);
-        return;
+        return ERROR_INVALID_PARAMETER;
     }
 
     //
@@ -1133,7 +1138,7 @@ VOID DCDMode(
     GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp);
     if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
         cuiPrintText(TEXT("SXSEXP: Source Delta Path not found"), TRUE);
-        return;
+        return ERROR_INVALID_PARAMETER;
     }
 
     //
@@ -1143,19 +1148,23 @@ VOID DCDMode(
     GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp);
     if (dwTmp == 0) {
         cuiPrintText(TEXT("SXSEXP: Destination Path not specified"), TRUE);
-        return;
+        return ERROR_INVALID_PARAMETER;
     }
 
     if (ProcessTargetFile(szSourceDeltaPath, &OutputBuffer, &OutputBufferSize, szSourcePath)) {
         if (supWriteBufferToFile(szDestinationPath, OutputBuffer, (DWORD)OutputBufferSize)) {
             cuiPrintText(TEXT("Operation Successful"), TRUE);
+            uResult = ERROR_SUCCESS;
         }
         else {
             cuiPrintText(TEXT("Error, write file: "), FALSE);
             cuiPrintTextLastError(TRUE);
+            uResult = ERROR_INTERNAL_ERROR;
         }
         if (OutputBuffer) HeapFree(g_Heap, 0, OutputBuffer);
     }
+
+    return uResult;
 }
 
 /*
@@ -1170,7 +1179,7 @@ void main()
 {
     BOOL    cond = FALSE;
     DWORD   dwTmp, paramId = 1;
-    UINT    uResult = (UINT)-1;
+    UINT    uResult = ERROR_SUCCESS;
     LPWSTR  lpCmdLine;
     WCHAR   szBuffer[MAX_PATH * 2];
     WCHAR   szSourcePath[MAX_PATH + 1], szDestinationPath[MAX_PATH + 1];
@@ -1182,6 +1191,9 @@ void main()
         g_Heap = HeapCreate(HEAP_GROWABLE, 0, 0);
         if (g_Heap == NULL)
             break;
+
+        HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
+        HeapSetInformation(g_Heap, HeapEnableTerminationOnCorruption, NULL, 0);
 
         cuiInitialize(FALSE, NULL);
         SetConsoleTitle(T_PROGRAMTITLE);
@@ -1196,7 +1208,7 @@ void main()
             }
 
             if (_strcmpi(szBuffer, L"/d") == 0) {
-                DCDMode(lpCmdLine);
+                uResult = DCDMode(lpCmdLine);
                 break;
             }
 
@@ -1205,6 +1217,7 @@ void main()
 
             if (!PathFileExists(szSourcePath)) {
                 cuiPrintText(TEXT("SXSEXP: Source Path not found"), TRUE);
+                uResult = ERROR_INVALID_PARAMETER;
                 break;
             }
 
@@ -1214,6 +1227,7 @@ void main()
             GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp);
             if (dwTmp == 0) {
                 cuiPrintText(TEXT("SXSEXP: Destination Path not specified"), TRUE);
+                uResult = ERROR_INVALID_PARAMETER;
                 break;
             }
 
@@ -1223,6 +1237,7 @@ void main()
             RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
             if (GetSystemDirectory(szBuffer, MAX_PATH) == 0) {
                 cuiPrintText(TEXT("SXSEXP: Could not query Windows directory"), TRUE);
+                uResult = ERROR_INTERNAL_ERROR;
                 break;
             }
             else {
@@ -1231,6 +1246,7 @@ void main()
             hCabinetDll = LoadLibrary(szBuffer);
             if (hCabinetDll == NULL) {
                 cuiPrintText(TEXT("SXSEXP: Error loading Cabinet.dll"), TRUE);
+                uResult = ERROR_DLL_NOT_FOUND;
                 break;
             }
 
