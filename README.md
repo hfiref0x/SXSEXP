@@ -42,11 +42,10 @@ In order to build from source you need Microsoft Visual Studio 2015 and later ve
 * Select Platform ToolSet first for project in solution you want to build (Project->Properties->General): 
   * v120 for Visual Studio 2013;
   * v140 for Visual Studio 2015; 
-  * v141 for Visual Studio 2017.
-* For v140 and above set Target Platform Version (Project->Properties->General):
-  * If v140 then select 8.1 (Note that Windows 8.1 SDK must be installed);
-  * If v141 then select 10.0.17134.0 (Note that Windows 10.0.17134 SDK must be installed). 
+  * v141 for Visual Studio 2017;
+  * v142 for Visual Studio 2019.
+* Windows SDK 8.1 or above must be installed.
 
 # Authors
 
-(c) 2016 - 2018 SXSEXP Project
+(c) 2016 - 2020 SXSEXP Project

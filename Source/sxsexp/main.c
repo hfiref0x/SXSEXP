@@ -317,10 +317,9 @@ CFILE_TYPE GetTargetFileType(
             break;
 
         default:
-            Result = ftUnknown;
             break;
-
         }
+
     }
     else {
         //not compressed, check mz header
@@ -384,7 +383,7 @@ BOOL ProcessFileDCN(
     _Out_ PSIZE_T OutputFileBufferSize
 )
 {
-    BOOL bResult = FALSE, bCond = FALSE;
+    BOOL bResult = FALSE;
 
     DELTA_HEADER_INFO   dhi;
     DELTA_INPUT         Source, Delta;
@@ -426,7 +425,7 @@ BOOL ProcessFileDCN(
         *OutputFileBuffer = Data;
         *OutputFileBufferSize = DataSize;
 
-    } while (bCond);
+    } while (FALSE);
 
     return bResult;
 }
@@ -448,7 +447,7 @@ BOOL ProcessFileDCD(
     _Out_ PSIZE_T OutputFileBufferSize
 )
 {
-    BOOL bCond = FALSE, bResult = FALSE;
+    BOOL bResult = FALSE;
     HANDLE hFile = INVALID_HANDLE_VALUE;
     LARGE_INTEGER FileSize; 
 
@@ -530,7 +529,7 @@ BOOL ProcessFileDCD(
         *OutputFileBuffer = Data;
         *OutputFileBufferSize = DataSize;
 
-    } while (bCond);
+    } while (FALSE);
 
     if (SourceFileBuffer) VirtualFree(SourceFileBuffer, 0, MEM_RELEASE);
     if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
@@ -554,7 +553,7 @@ BOOL ProcessFileDCS(
     _Out_ PSIZE_T OutputFileBufferSize
 )
 {
-    BOOL bResult = FALSE, bCond = FALSE;
+    BOOL bResult = FALSE;
     COMPRESSOR_HANDLE hDecompressor = 0;
     BYTE *DataBufferPtr = NULL, *DataBuffer = NULL;
 
@@ -660,7 +659,7 @@ BOOL ProcessFileDCS(
         *OutputFileBuffer = DataBuffer;
         *OutputFileBufferSize = FileHeader->UncompressedFileSize;
 
-    } while (bCond);
+    } while (FALSE);
 
     if (hDecompressor != NULL)
         pCloseDecompressor(hDecompressor);
@@ -684,7 +683,7 @@ BOOL ProcessFileDCM(
     _Out_ PSIZE_T OutputFileBufferSize
 )
 {
-    BOOL                bCond = FALSE, bResult = FALSE;
+    BOOL                bResult = FALSE;
     PDCM_HEADER         FileHeader = (PDCM_HEADER)SourceFile;
 
     PVOID               Data = NULL;
@@ -730,7 +729,7 @@ BOOL ProcessFileDCM(
         *OutputFileBuffer = Data;
         *OutputFileBufferSize = DataSize;
 
-    } while (bCond);
+    } while (FALSE);
 
     return bResult;
 }
@@ -751,7 +750,7 @@ BOOL ProcessTargetFile(
     _In_opt_ LPWSTR lpDeltaFileName
 )
 {
-    BOOL bCond = FALSE, bResult = FALSE;
+    BOOL bResult = FALSE;
     HANDLE hFile = INVALID_HANDLE_VALUE, hFileMapping = NULL;
     PDWORD MappedFile = NULL;
     LARGE_INTEGER FileSize;
@@ -864,7 +863,7 @@ BOOL ProcessTargetFile(
             break;
         }
 
-    } while (bCond);
+    } while (FALSE);
 
     if (MappedFile != NULL)
         UnmapViewOfFile((LPCVOID)MappedFile);
@@ -1177,7 +1176,6 @@ UINT DCDMode(
 */
 void main()
 {
-    BOOL    cond = FALSE;
     DWORD   dwTmp, paramId = 1;
     UINT    uResult = ERROR_SUCCESS;
     LPWSTR  lpCmdLine;
@@ -1258,7 +1256,7 @@ void main()
             cuiPrintText(T_HELP, TRUE);
         }
 
-    } while (cond);
+    } while (FALSE);
 
     if (hCabinetDll != NULL)
         FreeLibrary(hCabinetDll);
