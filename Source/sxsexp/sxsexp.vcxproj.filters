@@ -54,7 +54,7 @@
     <ClCompile Include="minirtl\ultostr.c">
       <Filter>minirtl</Filter>
     </ClCompile>
-    <ClCompile Include="cui.c">
+    <ClCompile Include="sup.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -71,19 +71,13 @@
     <ClInclude Include="wcp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="csup.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="global.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="cui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="compress.h">
+    <ClInclude Include="sup.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

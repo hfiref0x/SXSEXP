@@ -4,7 +4,7 @@
 
 # System Requirements
 
-x86/x64 Windows 7/8/8.1/10
+x86/x64 Windows 7/8/8.1/10/11
 
 # Supported file types
 * DCN v1
@@ -35,17 +35,15 @@ Example:
 # Build
 
 SXSEXP comes with full source code written in C.
-In order to build from source you need Microsoft Visual Studio 2015 and later versions.
+In order to build from source you need Microsoft Visual Studio 2019 and later versions.
 
 ## Instructions
 
 * Select Platform ToolSet first for project in solution you want to build (Project->Properties->General): 
-  * v120 for Visual Studio 2013;
-  * v140 for Visual Studio 2015; 
-  * v141 for Visual Studio 2017;
-  * v142 for Visual Studio 2019.
-* Windows SDK 8.1 or above must be installed.
+  * v142 for Visual Studio 2019;
+  * v143 for Visual Studio 2022.
+* Windows SDK 10 or above must be installed.
 
 # Authors
 
-(c) 2016 - 2020 SXSEXP Project
+(c) 2016 - 2023 SXSEXP Project

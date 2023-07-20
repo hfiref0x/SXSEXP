@@ -1,14 +1,14 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016
+*  (C) COPYRIGHT AUTHORS, 2016 - 2023
 *
 *  TITLE:       GLOBAL.H
 *
-*  VERSION:     1.10
+*  VERSION:     1.40
 *
-*  DATE:        16 June 2016
+*  DATE:        19 July 2023
 *
-*  Common header file.
+*  Global header file.
 *
 * THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF
 * ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED
@@ -22,28 +22,31 @@
 #error ANSI build is not supported
 #endif
 
-#if (_MSC_VER >= 1900) 
+#if defined (_MSC_VER)
+#if (_MSC_VER >= 1900)
 #ifdef _DEBUG
 #pragma comment(lib, "vcruntimed.lib")
 #pragma comment(lib, "ucrtd.lib")
 #else
+#pragma comment(lib, "libucrt.lib")
 #pragma comment(lib, "libvcruntime.lib")
 #endif
 #endif
+#endif
 
-//disable nonmeaningful warnings.
-#pragma warning(disable: 4005) // macro redefinition
-#pragma warning(disable: 4055) // %s : from data pointer %s to function pointer %s
-#pragma warning(disable: 4152) // nonstandard extension, function/data pointer conversion in expression
-#pragma warning(disable: 4201) // nonstandard extension used : nameless struct/union
-#pragma warning(disable: 6102) // Using %s from failed function call at line %u
-#pragma warning(disable: 6320) // exception-filter expression is the constant EXCEPTION_EXECUTE_HANDLER
+#if defined (_MSC_VER)
+#if (_MSC_VER >= 1920)
+#pragma comment(linker,"/merge:_RDATA=.rdata")
+#endif
+#endif
 
 #include <Windows.h>
 #include <msdelta.h>
 #include <compressapi.h>
 #include "minirtl\minirtl.h"
 #include "minirtl\cmdline.h"
-#include "csup.h"
-#include "cui.h"
-#include "compress.h"
+#include "sup.h"
+
+#pragma comment(lib, "msdelta.lib")
+
+extern HANDLE g_Heap;
