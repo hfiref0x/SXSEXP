@@ -4,9 +4,9 @@
 *
 *  TITLE:       SUP.H
 *
-*  VERSION:     1.40
+*  VERSION:     1.41
 *
-*  DATE:        19 Jul 2023
+*  DATE:        10 Dec 2023
 *
 *  Program support routines header file.
 *
@@ -101,6 +101,27 @@ typedef struct _SUP_DECOMPRESSOR {
     pfnDecompress Decompress;
 } SUP_DECOMPRESSOR, * PSUP_DECOMPRESSOR;
 
+typedef BOOL (WINAPI* pfnApplyDeltaB)(
+    _In_ DELTA_FLAG_TYPE ApplyFlags,
+    _In_ DELTA_INPUT Source,
+    _In_ DELTA_INPUT Delta,
+    _Out_ LPDELTA_OUTPUT lpTarget);
+
+typedef BOOL (WINAPI* pfnDeltaFree)(
+    _In_ LPVOID lpMemory);
+
+typedef BOOL (WINAPI* pfnGetDeltaInfoB)(
+    _In_ DELTA_INPUT Delta,
+    _Out_ LPDELTA_HEADER_INFO lpHeaderInfo);
+
+typedef struct _SUP_DELTA_COMPRESSION {
+    HMODULE hModule;
+    pfnApplyDeltaB ApplyDeltaB;
+    pfnDeltaFree DeltaFree;
+    pfnGetDeltaInfoB GetDeltaInfoB;
+} SUP_DELTA_COMPRESSION, * PSUP_DELTA_COMPRESSION;
+
+
 //
 // CONSOLE START
 //
@@ -137,6 +158,11 @@ VOID supConsoleDisplayWin32Error(
 //
 // CONSOLE END
 //
+BOOL supInitializeMsDeltaAPI(
+    _Inout_ PSUP_DELTA_COMPRESSION MsDeltaContext);
+
+BOOL supInitCabinetDecompressionAPI(
+    _Inout_ PSUP_DECOMPRESSOR Decompressor);
 
 CFILE_TYPE supGetFileType(
     _In_ PVOID FileBuffer);
@@ -154,9 +180,6 @@ BOOL supWriteBufferToFile(
 VOID supPrintDeltaHeaderInfo(
     _In_ PSUP_CONSOLE Console,
     _In_ LPDELTA_HEADER_INFO DeltaHeaderInfo);
-
-BOOL supInitCabinetDecompressionAPI(
-    _Inout_ PSUP_DECOMPRESSOR Decompressor);
 
 BOOL supMapInputFile(
     _In_ LPCWSTR FileName,

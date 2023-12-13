@@ -4,9 +4,9 @@
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.40
+*  VERSION:     1.41
 *
-*  DATE:        19 Jul 2023
+*  DATE:        10 Dec 2023
 *
 *  Program entry point.
 *
@@ -25,6 +25,7 @@
 HANDLE g_Heap = NULL;
 
 SUP_DECOMPRESSOR gDecompressor;
+SUP_DELTA_COMPRESSION gMsDeltaContext;
 SUP_CONSOLE gConsole;
 
 #define T_UNSUPFORMAT TEXT("This format is not supported by this tool")
@@ -33,7 +34,7 @@ SUP_CONSOLE gConsole;
 //
 // Help output.
 //
-#define T_TITLE TEXT("SXSEXP v1.4.0 from Jul 20 2023, (c) 2016 - 2023 hfiref0x\r\n\
+#define T_TITLE TEXT("SXSEXP v1.4.1 from Dec 10 2023, (c) 2016 - 2023 hfiref0x\r\n\
 Expand compressed files from WinSxS folder (DCD01, DCN01, DCM01, DCS01 formats).\r\n")
 
 #define T_HELP  TEXT("SXSEXP <Source File> <Destination File>\r\n\
@@ -75,7 +76,7 @@ VOID PrintDataHeader(
         inputDelta.lpStart = header.pDCD->Data;
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCD_HEADER, Data);  //size without header specific fields
         inputDelta.Editable = FALSE;
-        if (!GetDeltaInfoB(inputDelta, &dhi)) {
+        if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
             supConsoleWriteLine(&gConsole, T_ERRORDELTA);
             break;
         }
@@ -98,7 +99,7 @@ VOID PrintDataHeader(
         inputDelta.lpStart = header.pDCN->Data;
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCN_HEADER, Data); //size without header
         inputDelta.Editable = FALSE;
-        if (!GetDeltaInfoB(inputDelta, &dhi)) {
+        if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
             supConsoleWriteLine(&gConsole, T_ERRORDELTA);
             break;
         }
@@ -181,12 +182,12 @@ BOOL ProcessFileDCN(
     inputDelta.Editable = FALSE;
     inputDelta.lpStart = ((PDCN_HEADER)SourceFile)->Data;
     inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCN_HEADER, Data);
-    if (GetDeltaInfoB(inputDelta, &deltaHeaderInfo)) {
+    if (gMsDeltaContext.GetDeltaInfoB(inputDelta, &deltaHeaderInfo)) {
 
         RtlSecureZeroMemory(&sourceDelta, sizeof(DELTA_INPUT));
         RtlSecureZeroMemory(&targetOutput, sizeof(DELTA_OUTPUT));
 
-        bResult = ApplyDeltaB(DELTA_FLAG_NONE, sourceDelta, inputDelta, &targetOutput);
+        bResult = gMsDeltaContext.ApplyDeltaB(DELTA_FLAG_NONE, sourceDelta, inputDelta, &targetOutput);
         if (bResult) {
 
             pvData = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, targetOutput.uSize);
@@ -197,7 +198,7 @@ BOOL ProcessFileDCN(
             else {
                 dwLastError = GetLastError();
             }
-            DeltaFree(targetOutput.lpStart);
+            gMsDeltaContext.DeltaFree(targetOutput.lpStart);
         }
         else {
             dwLastError = GetLastError();
@@ -298,7 +299,7 @@ BOOL ProcessFileDCD(
 
         ioutput.lpStart = NULL;
         ioutput.uSize = 0;
-        bResult = ApplyDeltaB(DELTA_FLAG_NONE, isrc, idelta, &ioutput);
+        bResult = gMsDeltaContext.ApplyDeltaB(DELTA_FLAG_NONE, isrc, idelta, &ioutput);
         if (bResult) {
 
             pvData = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, ioutput.uSize);
@@ -309,7 +310,7 @@ BOOL ProcessFileDCD(
             else {
                 dwLastError = GetLastError();
             }
-            DeltaFree(ioutput.lpStart);
+            gMsDeltaContext.DeltaFree(ioutput.lpStart);
         }
         else {
             dwLastError = GetLastError();
@@ -495,7 +496,7 @@ BOOL ProcessFileDCM(
         inputDelta.Editable = FALSE;
         inputDelta.lpStart = ((PDCM_HEADER)SourceFile)->Data;
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCM_HEADER, Data);
-        if (!GetDeltaInfoB(inputDelta, &dhi)) {
+        if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
             dwLastError = GetLastError();
             supConsoleWriteLine(&gConsole, T_ERRORDELTA);
             break;
@@ -508,7 +509,7 @@ BOOL ProcessFileDCM(
 
         RtlSecureZeroMemory(&targetDelta, sizeof(DELTA_OUTPUT));
 
-        bResult = ApplyDeltaB(DELTA_FLAG_NONE, sourceDelta, inputDelta, &targetDelta);
+        bResult = gMsDeltaContext.ApplyDeltaB(DELTA_FLAG_NONE, sourceDelta, inputDelta, &targetDelta);
         if (bResult) {
 
             pvData = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, targetDelta.uSize);
@@ -520,7 +521,7 @@ BOOL ProcessFileDCM(
                 dwLastError = GetLastError();
             }
 
-            DeltaFree(targetDelta.lpStart);
+            gMsDeltaContext.DeltaFree(targetDelta.lpStart);
         }
         else {
             dwLastError = GetLastError();
@@ -940,6 +941,21 @@ void main()
             if (_strcmpi(szBuffer, L"/?") == 0) {
                 supConsoleWriteLine(&gConsole, T_HELP);
                 break;
+            }
+
+            if (!supInitializeMsDeltaAPI(&gMsDeltaContext)) {
+                supConsoleDisplayWin32Error(&gConsole, TEXT("SXSEXP: Fatal error, failed to initialize MsDelta API"));
+                break;
+            }
+            else {
+                RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
+                if (GetModuleFileName(gMsDeltaContext.hModule,
+                    (LPWSTR)&szSourcePath,
+                    MAX_PATH))
+                {
+                    supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Loaded MsDelta.dll"));
+                    supConsoleWriteLine(&gConsole, szSourcePath);
+                }
             }
 
             if (_strcmpi(szBuffer, L"/d") == 0) {

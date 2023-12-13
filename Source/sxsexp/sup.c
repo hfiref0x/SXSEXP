@@ -463,6 +463,52 @@ CFILE_TYPE supGetFileType(
 }
 
 /*
+* supInitializeMsDeltaAPI
+*
+* Purpose:
+*
+* Allocate pointers to MsDelta engine routines.
+*
+*/
+BOOL supInitializeMsDeltaAPI(
+    _Inout_ PSUP_DELTA_COMPRESSION MsDeltaContext
+)
+{
+    FARPROC pfn;
+    HMODULE hModule;
+
+    MsDeltaContext->ApplyDeltaB = NULL;
+    MsDeltaContext->DeltaFree = NULL;
+    MsDeltaContext->GetDeltaInfoB = NULL;
+
+    hModule = LoadLibrary(TEXT("msdelta.dll"));
+    MsDeltaContext->hModule = hModule;
+
+    if (hModule == NULL)
+        return FALSE;
+
+    pfn = GetProcAddress(hModule, "ApplyDeltaB");
+    if (pfn)
+        MsDeltaContext->ApplyDeltaB = (pfnApplyDeltaB)pfn;
+    else
+        return FALSE;
+
+    pfn = GetProcAddress(hModule, "DeltaFree");
+    if (pfn)
+        MsDeltaContext->DeltaFree = (pfnDeltaFree)pfn;
+    else
+        return FALSE;
+
+    pfn = GetProcAddress(hModule, "GetDeltaInfoB");
+    if (pfn)
+        MsDeltaContext->GetDeltaInfoB = (pfnGetDeltaInfoB)pfn;
+    else
+        return FALSE;
+
+    return TRUE;
+}
+
+/*
 * supInitCabinetDecompressionAPI
 *
 * Purpose:
