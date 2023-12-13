@@ -37,6 +37,14 @@ Example:
 SXSEXP comes with full source code written in C.
 In order to build from source you need Microsoft Visual Studio 2019 and later versions.
 
+# Newest MsDelta changes
+
+Since apprx. Windows 11 MS introduced updated version of MsDelta compression library that comes as part of cumulative update. This library called "UpdateCompression.dll" 
+and it is a new version of Windows built-in MsDelta.dll with (besides of other improvements) only support to in-memory operations compared to old MsDelta.dll that can also work directly with files.
+
+If you are having trouble with expanding files try using updatecompression.dll instead of default msdelta.dll. Simple rename updatecompression.dll to msdelta.dll and drop it to
+the same directory where sxsexp located. See [#6](https://github.com/hfiref0x/SXSEXP/issues/6) for more information.
+
 ## Instructions
 
 * Select Platform ToolSet first for project in solution you want to build (Project->Properties->General): 
