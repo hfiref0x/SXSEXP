@@ -126,36 +126,6 @@ VOID PrintDataHeader(
 }
 
 /*
-* ProcessFileMZ
-*
-* Purpose:
-*
-* Copy Portable Executable to the output buffer, caller must free it with HeapFree.
-*
-*/
-BOOL ProcessFileMZ(
-    _In_ PVOID SourceFile,
-    _In_ ULONG SourceFileSize,
-    _Out_ PVOID* OutputFileBuffer,
-    _Out_ PSIZE_T OutputFileBufferSize
-)
-{
-    PVOID copyPtr;
-
-    copyPtr = HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, SourceFileSize);
-    if (copyPtr == NULL) {
-        *OutputFileBuffer = NULL;
-        *OutputFileBufferSize = 0;
-        return FALSE;
-    }
-
-    *OutputFileBuffer = copyPtr;
-    *OutputFileBufferSize = SourceFileSize;
-    RtlCopyMemory(copyPtr, SourceFile, SourceFileSize);
-    return TRUE;
-}
-
-/*
 * ProcessFileDCN
 *
 * Purpose:
@@ -254,7 +224,7 @@ BOOL ProcessFileDCD(
 
         if (hFile == INVALID_HANDLE_VALUE) {
             dwLastError = GetLastError();
-            supConsoleDisplayWin32Error(&gConsole, TEXT("Error openning source file"));
+            supConsoleDisplayWin32Error(&gConsole, TEXT("Error opening source file"));
             break;
         }
 
@@ -553,6 +523,7 @@ BOOL ProcessTargetFile(
 )
 {
     BOOL bResult = FALSE;
+    DWORD dwLastError = ERROR_SUCCESS;
     PVOID mappedFile = NULL;
     ULONG fileSize;
     CFILE_TYPE fileType;
@@ -565,7 +536,13 @@ BOOL ProcessTargetFile(
     do {
 
         if (!supMapInputFile(lpTargetFileName, &fileSize, &mappedFile)) {
-            supConsoleDisplayWin32Error(&gConsole, TEXT("Error mapping input file"));
+            dwLastError = GetLastError();
+            if (dwLastError == ERROR_NOT_SUPPORTED) {
+                supConsoleWriteLine(&gConsole, TEXT("File format is unknown, skipping"));
+            }
+            else {
+                supConsoleDisplayWin32Error(&gConsole, TEXT("Error mapping input file"));
+            }
             break;
         }
 
@@ -575,27 +552,24 @@ BOOL ProcessTargetFile(
         _strcat(szBuffer, TEXT(" bytes"));
         supConsoleWriteLine(&gConsole, szBuffer);
 
-        fileType = supGetFileType(mappedFile);
+        fileType = supGetFileType(mappedFile, fileSize);
         if (fileType == ftUnknown) {
-            SetLastError(ERROR_INVALID_DATA);
-            supConsoleWriteLine(&gConsole, TEXT("File format is unknown"));
+			dwLastError = ERROR_NOT_SUPPORTED;
+            supConsoleWriteLine(&gConsole, TEXT("File format is unknown, skipping"));
             break;
         }
 
         switch (fileType) {
 
-        case ftMZ:
-            bResult = ProcessFileMZ(mappedFile, fileSize, pvOutputBuffer, pbOutputBuffer);
-            supConsoleWriteLine(&gConsole, TEXT("FileType: MZ, file will be copied"));
-            break;
-
         case ftDCH:
+            dwLastError = ERROR_INVALID_DATA;
             supConsoleWrite(&gConsole, TEXT("FileType: DCH1 "));
             supConsoleWriteLine(&gConsole, T_UNSUPFORMAT);
             break;
 
         case ftDCX:
-            supConsoleWrite(&gConsole, TEXT("FileType: DCX1 (please report it to program authors)"));
+            dwLastError = ERROR_INVALID_DATA;
+            supConsoleWrite(&gConsole, TEXT("FileType: DCX1 (please report it to program authors) "));
             supConsoleWriteLine(&gConsole, T_UNSUPFORMAT);
             break;
 
@@ -603,32 +577,41 @@ BOOL ProcessTargetFile(
             if (lpDeltaFileName) {
                 PrintDataHeader(fileType, mappedFile, fileSize);
                 bResult = ProcessFileDCD(mappedFile, fileSize, lpDeltaFileName, pvOutputBuffer, pbOutputBuffer);
+                if (!bResult)
+					dwLastError = GetLastError();
             }
             else {
                 supConsoleWriteLine(&gConsole, TEXT("Delta filename not specified, use /d to unpack DCD01 files, this cannot be done in directory scan mode"));
-                SetLastError(ERROR_INVALID_PARAMETER);
+                dwLastError = ERROR_INVALID_PARAMETER;
             }
             break;
 
         case ftDCM:
             PrintDataHeader(fileType, mappedFile, fileSize);
             bResult = ProcessFileDCM(mappedFile, fileSize, pvOutputBuffer, pbOutputBuffer);
+            if (!bResult)
+                dwLastError = GetLastError();
             break;
 
         case ftDCN:
             PrintDataHeader(fileType, mappedFile, fileSize);
             bResult = ProcessFileDCN(mappedFile, fileSize, pvOutputBuffer, pbOutputBuffer);
+            if (!bResult)
+                dwLastError = GetLastError();
             break;
 
         case ftDCS:
 
             if (gDecompressor.Initialized == FALSE) {
+                dwLastError = ERROR_INTERNAL_ERROR;
                 supConsoleWriteLine(&gConsole, TEXT("\r\nRequired Cabinet API are missing, cannot decompress this file."));
                 break;
             }
 
             PrintDataHeader(fileType, mappedFile, fileSize);
             bResult = ProcessFileDCS(mappedFile, fileSize, pvOutputBuffer, pbOutputBuffer);
+            if (!bResult)
+                dwLastError = GetLastError();
             break;
         }
 
@@ -636,6 +619,8 @@ BOOL ProcessTargetFile(
 
     if (mappedFile != NULL)
         UnmapViewOfFile(mappedFile);
+
+    SetLastError(dwLastError);
 
     return bResult;
 }
@@ -672,6 +657,9 @@ UINT ProcessTargetFileAndWriteOutput(
         }
         if (outputBuffer)
             HeapFree(g_Heap, 0, outputBuffer);
+    }
+    else if (GetLastError() == ERROR_NOT_SUPPORTED) {
+        supConsoleWriteLine(&gConsole, TEXT("File format is unknown, skipping"));
     }
     else {
         uResult = GetLastError();
@@ -770,7 +758,7 @@ UINT ProcessTargetDirectory(
                 }
             }
 
-        } while (FindNextFile(hFindFile, &data));
+        } while (uResult == ERROR_SUCCESS && FindNextFile(hFindFile, &data));
 
         FindClose(hFindFile);
     }
@@ -862,7 +850,11 @@ UINT DCDMode(
     // Source File.
     //
     RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
-    GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp);
+    if (!GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp)) {
+        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        return ERROR_INVALID_PARAMETER;
+    }
+
     if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
         supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
         return ERROR_INVALID_PARAMETER;
@@ -872,7 +864,11 @@ UINT DCDMode(
     //  Source Delta File.
     //
     RtlSecureZeroMemory(szSourceDeltaPath, sizeof(szSourceDeltaPath));
-    GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp);
+    if (!GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp)) {
+        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        return ERROR_INVALID_PARAMETER;
+    }
+
     if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
         supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Source Delta Path not found"));
         return ERROR_INVALID_PARAMETER;
@@ -882,7 +878,11 @@ UINT DCDMode(
     //  Destination File.
     //
     RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
-    GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp);
+    if (!GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp)) {
+        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        return ERROR_INVALID_PARAMETER;
+    }
+
     if (dwTmp == 0) {
         supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
         return ERROR_INVALID_PARAMETER;
@@ -925,8 +925,10 @@ void main()
     do {
 
         g_Heap = HeapCreate(HEAP_GROWABLE, 0, 0);
-        if (g_Heap == NULL)
+        if (g_Heap == NULL) {
+            uResult = ERROR_OUTOFMEMORY;
             break;
+        }
 
         HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
         HeapSetInformation(g_Heap, HeapEnableTerminationOnCorruption, NULL, 0);
@@ -936,7 +938,12 @@ void main()
 
         lpCmdLine = GetCommandLine();
         RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
-        GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp);
+        if (!GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp)) {
+            supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
         if (dwTmp > 0) {
             if (_strcmpi(szBuffer, L"/?") == 0) {
                 supConsoleWriteLine(&gConsole, T_HELP);
@@ -944,6 +951,7 @@ void main()
             }
 
             if (!supInitializeMsDeltaAPI(&gMsDeltaContext)) {
+                uResult = GetLastError();
                 supConsoleDisplayWin32Error(&gConsole, TEXT("SXSEXP: Fatal error, failed to initialize MsDelta API"));
                 break;
             }
@@ -975,7 +983,12 @@ void main()
             dwTmp = 0;
             paramId++;
             RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
-            GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp);
+            if (!GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp)) {
+                supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+                uResult = ERROR_INVALID_PARAMETER;
+                break;
+            }
+
             if (dwTmp == 0) {
                 supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
                 uResult = ERROR_INVALID_PARAMETER;
