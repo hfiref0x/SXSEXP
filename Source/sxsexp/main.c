@@ -77,7 +77,7 @@ VOID PrintDataHeader(
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCD_HEADER, Data);  //size without header specific fields
         inputDelta.Editable = FALSE;
         if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
-            supConsoleWriteLine(&gConsole, T_ERRORDELTA);
+            supConsoleWriteErrorLine(&gConsole, T_ERRORDELTA);
             break;
         }
 
@@ -100,7 +100,7 @@ VOID PrintDataHeader(
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCN_HEADER, Data); //size without header
         inputDelta.Editable = FALSE;
         if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
-            supConsoleWriteLine(&gConsole, T_ERRORDELTA);
+            supConsoleWriteErrorLine(&gConsole, T_ERRORDELTA);
             break;
         }
 
@@ -468,7 +468,7 @@ BOOL ProcessFileDCM(
         inputDelta.uSize = SourceFileSize - FIELD_OFFSET(DCM_HEADER, Data);
         if (!gMsDeltaContext.GetDeltaInfoB(inputDelta, &dhi)) {
             dwLastError = GetLastError();
-            supConsoleWriteLine(&gConsole, T_ERRORDELTA);
+            supConsoleWriteErrorLine(&gConsole, T_ERRORDELTA);
             break;
         }
 
@@ -556,8 +556,8 @@ BOOL ProcessTargetFile(
 
         case ftDCH:
             dwLastError = ERROR_INVALID_DATA;
-            supConsoleWrite(&gConsole, TEXT("FileType: DCH1 "));
-            supConsoleWriteLine(&gConsole, T_UNSUPFORMAT);
+            supConsoleWriteError(&gConsole, TEXT("FileType: DCH1 "));
+            supConsoleWriteErrorLine(&gConsole, T_UNSUPFORMAT);
             break;
 
         case ftDCX:

@@ -54,4 +54,4 @@ the same directory where sxsexp located. See [#6](https://github.com/hfiref0x/SX
 
 # Authors
 
-(c) 2016 - 2023 SXSEXP Project
+(c) 2016 - 2024 SXSEXP Project
