@@ -568,7 +568,7 @@ VOID supConsoleInit(
     ULONG dummy;
     WCHAR szBE = 0xFEFF;
 
-    Console->InputHandle = GetStdHandle(STD_INPUT_HANDLE);
+    Console->ErrorHandle = GetStdHandle(STD_ERROR_HANDLE);
     Console->OutputHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 
     SetConsoleMode(Console->OutputHandle, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_OUTPUT);
@@ -630,12 +630,14 @@ VOID supConsoleClear(
 VOID supConsoleWriteWorker(
     _In_ PSUP_CONSOLE Console,
     _In_ LPCWSTR lpText,
-    _In_ BOOL UseReturn
+    _In_ BOOL UseReturn,
+    _In_ BOOL WriteError
 )
 {
     SIZE_T size;
     DWORD bytesIO;
     LPWSTR buffer;
+    HANDLE hOutput = WriteError ? Console->ErrorHandle : Console->OutputHandle;
 
     size = (6 + _strlen(lpText)) * sizeof(WCHAR);
     buffer = (LPWSTR)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
@@ -648,10 +650,10 @@ VOID supConsoleWriteWorker(
         size = _strlen(buffer);
         if (Console->Mode == ConsoleModeFile) {
             size *= sizeof(WCHAR);
-            WriteFile(Console->OutputHandle, buffer, (DWORD)size, &bytesIO, NULL);
+            WriteFile(hOutput, buffer, (DWORD)size, &bytesIO, NULL);
         }
         else {
-            WriteConsole(Console->OutputHandle, buffer, (DWORD)size, &bytesIO, NULL);
+            WriteConsole(hOutput, buffer, (DWORD)size, &bytesIO, NULL);
         }
 
         HeapFree(GetProcessHeap(), 0, buffer);
@@ -695,7 +697,7 @@ VOID supConsoleDisplayWin32Error(
         _strcat(buffer, errorBuffer);
     }
 
-    supConsoleWriteLine(Console, buffer);
+    supConsoleWriteErrorLine(Console, buffer);
 }
 
 /*

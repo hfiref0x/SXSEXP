@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016 - 2023
+*  (C) COPYRIGHT AUTHORS, 2016 - 2024
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.41
+*  VERSION:     1.42
 *
-*  DATE:        10 Dec 2023
+*  DATE:        30 June 2024
 *
 *  Program entry point.
 *
@@ -34,7 +34,7 @@ SUP_CONSOLE gConsole;
 //
 // Help output.
 //
-#define T_TITLE TEXT("SXSEXP v1.4.1 from Dec 10 2023, (c) 2016 - 2023 hfiref0x\r\n\
+#define T_TITLE TEXT("SXSEXP v1.4.2 from Jun 30 2024, (c) 2016 - 2024 hfiref0x\r\n\
 Expand compressed files from WinSxS folder (DCD01, DCN01, DCM01, DCS01 formats).\r\n")
 
 #define T_HELP  TEXT("SXSEXP <Source File> <Destination File>\r\n\
@@ -236,7 +236,7 @@ BOOL ProcessFileDCD(
 
         if ((FileSize.QuadPart < FIELD_OFFSET(DCD_HEADER, Data)) || (FileSize.QuadPart > 0x80000000)) {
             dwLastError = ERROR_INVALID_DATA;
-            supConsoleWriteLine(&gConsole, TEXT("Invalid file size"));
+            supConsoleWriteErrorLine(&gConsole, TEXT("Invalid file size"));
             break;
         }
 
@@ -348,13 +348,13 @@ BOOL ProcessFileDCS(
 
         if (fileHeader->UncompressedFileSize == 0) {
             dwLastError = ERROR_INVALID_USER_BUFFER;
-            supConsoleWriteLine(&gConsole, TEXT("\r\nError, UncompressedFileSize is 0"));
+            supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, UncompressedFileSize is 0"));
             break;
         }
 
         if (fileHeader->NumberOfBlocks == 0) {
             dwLastError = ERROR_INVALID_USER_BUFFER;
-            supConsoleWriteLine(&gConsole, TEXT("\r\nError, NumberOfBlocks is 0"));
+            supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, NumberOfBlocks is 0"));
             break;
         }
 
@@ -390,13 +390,13 @@ BOOL ProcessFileDCS(
 
             if (bytesRead + dcsBlock->Size > SourceFileSize) {
                 dwLastError = ERROR_INVALID_DATA;
-                supConsoleWriteLine(&gConsole, TEXT("\r\nError, compressed data size is bigger than file size"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, compressed data size is bigger than file size"));
                 break;
             }
 
             if (bytesDecompressed + dcsBlock->DecompressedBlockSize > fileHeader->UncompressedFileSize) {
                 dwLastError = ERROR_INVALID_DATA;
-                supConsoleWriteLine(&gConsole, TEXT("\r\nError, uncompressed data size is bigger than known uncompressed file size"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, uncompressed data size is bigger than known uncompressed file size"));
                 break;
             }
             bytesDecompressed += dcsBlock->DecompressedBlockSize;
@@ -536,13 +536,7 @@ BOOL ProcessTargetFile(
     do {
 
         if (!supMapInputFile(lpTargetFileName, &fileSize, &mappedFile)) {
-            dwLastError = GetLastError();
-            if (dwLastError == ERROR_NOT_SUPPORTED) {
-                supConsoleWriteLine(&gConsole, TEXT("File format is unknown, skipping"));
-            }
-            else {
-                supConsoleDisplayWin32Error(&gConsole, TEXT("Error mapping input file"));
-            }
+            dwLastError = GetLastError(); //error is reported elsewhere
             break;
         }
 
@@ -554,8 +548,7 @@ BOOL ProcessTargetFile(
 
         fileType = supGetFileType(mappedFile, fileSize);
         if (fileType == ftUnknown) {
-			dwLastError = ERROR_NOT_SUPPORTED;
-            supConsoleWriteLine(&gConsole, TEXT("File format is unknown, skipping"));
+            dwLastError = ERROR_NOT_SUPPORTED; //error is reported elsewhere
             break;
         }
 
@@ -569,8 +562,8 @@ BOOL ProcessTargetFile(
 
         case ftDCX:
             dwLastError = ERROR_INVALID_DATA;
-            supConsoleWrite(&gConsole, TEXT("FileType: DCX1 (please report it to program authors) "));
-            supConsoleWriteLine(&gConsole, T_UNSUPFORMAT);
+            supConsoleWriteError(&gConsole, TEXT("FileType: DCX1 (please report it to program authors) "));
+            supConsoleWriteErrorLine(&gConsole, T_UNSUPFORMAT);
             break;
 
         case ftDCD:
@@ -578,10 +571,10 @@ BOOL ProcessTargetFile(
                 PrintDataHeader(fileType, mappedFile, fileSize);
                 bResult = ProcessFileDCD(mappedFile, fileSize, lpDeltaFileName, pvOutputBuffer, pbOutputBuffer);
                 if (!bResult)
-					dwLastError = GetLastError();
+                    dwLastError = GetLastError();
             }
             else {
-                supConsoleWriteLine(&gConsole, TEXT("Delta filename not specified, use /d to unpack DCD01 files, this cannot be done in directory scan mode"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("Delta filename not specified, use /d to unpack DCD01 files, this cannot be done in directory scan mode"));
                 dwLastError = ERROR_INVALID_PARAMETER;
             }
             break;
@@ -604,7 +597,7 @@ BOOL ProcessTargetFile(
 
             if (gDecompressor.Initialized == FALSE) {
                 dwLastError = ERROR_INTERNAL_ERROR;
-                supConsoleWriteLine(&gConsole, TEXT("\r\nRequired Cabinet API are missing, cannot decompress this file."));
+                supConsoleWriteErrorLine(&gConsole, TEXT("\r\nRequired Cabinet API are missing, cannot decompress this file."));
                 break;
             }
 
@@ -663,7 +656,7 @@ UINT ProcessTargetFileAndWriteOutput(
     }
     else {
         uResult = GetLastError();
-        supConsoleDisplayWin32Error(&gConsole, TEXT("Operation Failure"));
+        supConsoleDisplayWin32Error(&gConsole, TEXT("Error mapping input file"));
     }
     return uResult;
 }
@@ -723,8 +716,8 @@ UINT ProcessTargetDirectory(
                         _strcat(lpDestChildPath, TEXT("\\"));
 
                         if (!CreateDirectory(lpDestChildPath, NULL) && !PathFileExists(lpDestChildPath)) {
-                            supConsoleWrite(&gConsole, TEXT("SXSEXP: unable to create directory "));
-                            supConsoleWriteLine(&gConsole, lpDestChildPath);
+                            supConsoleWriteError(&gConsole, TEXT("SXSEXP: unable to create directory "));
+                            supConsoleWriteErrorLine(&gConsole, lpDestChildPath);
                             uResult = ERROR_DIRECTORY;
                             break;
                         }
@@ -813,7 +806,7 @@ UINT ProcessTargetPath(
         uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
     }
     else {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: invalid paths specified"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: invalid paths specified"));
         uResult = ERROR_INVALID_PARAMETER;
     }
 
@@ -851,12 +844,12 @@ UINT DCDMode(
     //
     RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
     if (!GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
         return ERROR_INVALID_PARAMETER;
     }
 
     if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -865,12 +858,12 @@ UINT DCDMode(
     //
     RtlSecureZeroMemory(szSourceDeltaPath, sizeof(szSourceDeltaPath));
     if (!GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
         return ERROR_INVALID_PARAMETER;
     }
 
     if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Source Delta Path not found"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Delta Path not found"));
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -879,12 +872,12 @@ UINT DCDMode(
     //
     RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
     if (!GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
         return ERROR_INVALID_PARAMETER;
     }
 
     if (dwTmp == 0) {
-        supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
+        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -939,7 +932,7 @@ void main()
         lpCmdLine = GetCommandLine();
         RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
         if (!GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp)) {
-            supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
             uResult = ERROR_INVALID_PARAMETER;
             break;
         }
@@ -975,7 +968,7 @@ void main()
             _strncpy(szSourcePath, MAX_PATH, szBuffer, MAX_PATH);
 
             if (!PathFileExists(szSourcePath)) {
-                supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
                 uResult = ERROR_INVALID_PARAMETER;
                 break;
             }
@@ -984,13 +977,13 @@ void main()
             paramId++;
             RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
             if (!GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp)) {
-                supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
                 uResult = ERROR_INVALID_PARAMETER;
                 break;
             }
 
             if (dwTmp == 0) {
-                supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
+                supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
                 uResult = ERROR_INVALID_PARAMETER;
                 break;
             }

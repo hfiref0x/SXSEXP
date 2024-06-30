@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2023
+*  (C) COPYRIGHT AUTHORS, 2023 - 2024
 *
 *  TITLE:       SUP.H
 *
-*  VERSION:     1.41
+*  VERSION:     1.42
 *
-*  DATE:        10 Dec 2023
+*  DATE:        30 Jun 2024
 *
 *  Program support routines header file.
 *
@@ -132,7 +132,7 @@ typedef enum _SUP_CONSOLE_MODE {
 
 typedef struct _SUP_CONSOLE {
     HANDLE OutputHandle;
-    HANDLE InputHandle;
+    HANDLE ErrorHandle;
     SUP_CONSOLE_MODE Mode;
 } SUP_CONSOLE, * PSUP_CONSOLE;
 
@@ -145,10 +145,13 @@ VOID supConsoleClear(
 VOID supConsoleWriteWorker(
     _In_ PSUP_CONSOLE Console,
     _In_ LPCWSTR lpText,
-    _In_ BOOL UseReturn);
+    _In_ BOOL UseReturn,
+    _In_ BOOL WriteError);
 
-#define supConsoleWrite(Console, lpText) supConsoleWriteWorker(Console, lpText, FALSE)
-#define supConsoleWriteLine(Console, lpText) supConsoleWriteWorker(Console, lpText, TRUE)
+#define supConsoleWrite(Console, lpText) supConsoleWriteWorker(Console, lpText, FALSE, FALSE)
+#define supConsoleWriteError(Console, lpText) supConsoleWriteWorker(Console, lpText, FALSE, TRUE)
+#define supConsoleWriteLine(Console, lpText) supConsoleWriteWorker(Console, lpText, TRUE, FALSE)
+#define supConsoleWriteErrorLine(Console, lpText) supConsoleWriteWorker(Console, lpText, TRUE, TRUE)
 
 VOID supConsoleDisplayWin32Error(
     _In_ PSUP_CONSOLE Console,
