@@ -401,12 +401,13 @@ VOID supPrintDeltaHeaderInfo(
 *
 */
 CFILE_TYPE supGetFileType(
-    _In_ PVOID FileBuffer
+    _In_ PVOID FileBuffer,
+	_In_ ULONG fileSize
 )
 {
     CFILE_TYPE Result = ftUnknown;
 
-    if (FileBuffer == NULL)
+    if (FileBuffer == NULL || fileSize < 4)
         return ftUnknown;
 
     //
@@ -447,17 +448,6 @@ CFILE_TYPE supGetFileType(
             break;
         }
 
-    }
-    else {
-        //
-        // Not compressed, check mz header.
-        //
-        if (*((BYTE*)FileBuffer) == 'M' &&
-            *((BYTE*)FileBuffer + 1) == 'Z'
-            )
-        {
-            Result = ftMZ;
-        }
     }
     return Result;
 }

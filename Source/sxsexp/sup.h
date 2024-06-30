@@ -30,7 +30,6 @@ typedef enum _CFILE_TYPE {
     ftDCM,
     ftDCS,
     ftDCX,
-    ftMZ,
     ftUnknown,
     ftMax
 } CFILE_TYPE;
@@ -165,7 +164,8 @@ BOOL supInitCabinetDecompressionAPI(
     _Inout_ PSUP_DECOMPRESSOR Decompressor);
 
 CFILE_TYPE supGetFileType(
-    _In_ PVOID FileBuffer);
+    _In_ PVOID FileBuffer,
+    _In_ ULONG fileSize);
 
 LPWSTR supPrintHash(
     _In_reads_bytes_(Length) LPBYTE Buffer,
