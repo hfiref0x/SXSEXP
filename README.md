@@ -1,5 +1,6 @@
-
 # SXSEXP
+[![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fhfiref0x%2FSXSEXP&countColor=%23263759&style=flat)](https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Fhfiref0x%2FSXSEXP)
+
 ## Expand compressed files from WinSxS folder.
 
 # System Requirements
@@ -21,11 +22,11 @@ x86/x64 Windows 7/8/8.1/10/11
 * Header Sign: 0x44 0x43 0x58 0x01, DCX 01 (unknown, only supported by Windows 10)
 
 # Usage
-SXSEXP < Source File > < Destination File >
+SXSEXP SourceFile DestinationFile
 
-SXSEXP < Source Directory > < Destination Directory >
+SXSEXP SourceDirectory DestinationDirectory
 
-SXSEXP /d < Source File > < Source Delta File > < Destination File >
+SXSEXP /d SourceFile SourceDeltaFile DestinationFile
 
 Example: 
 * sxsexp.exe srcdcn1.exe dest.exe 
@@ -35,23 +36,21 @@ Example:
 # Build
 
 SXSEXP comes with full source code written in C.
-In order to build from source you need Microsoft Visual Studio 2019 and later versions.
+In order to build from source, you need Microsoft Visual Studio 2019 or later versions.
 
 # Newest MsDelta changes
 
-Since apprx. Windows 11 MS introduced updated version of MsDelta compression library that comes as part of cumulative update. This library called "UpdateCompression.dll" 
-and it is a new version of Windows built-in MsDelta.dll with (besides of other improvements) only support to in-memory operations compared to old MsDelta.dll that can also work directly with files.
+Since approximately Windows 11, Microsoft introduced an updated version of the MsDelta compression library that comes as part of cumulative updates. This library is called "UpdateCompression.dll" and is a new version of the Windows built-in MsDelta.dll with (besides other improvements) support only for in-memory operations, compared to the old MsDelta.dll that can also work directly with files.
 
-If you are having trouble with expanding files try using updatecompression.dll instead of default msdelta.dll. Simple rename updatecompression.dll to msdelta.dll and drop it to
-the same directory where sxsexp located. See [#6](https://github.com/hfiref0x/SXSEXP/issues/6) for more information.
+If you are having trouble expanding files, try using updatecompression.dll instead of the default msdelta.dll. Simply rename updatecompression.dll to msdelta.dll and place it in the same directory where sxsexp is located. See [#6](https://github.com/hfiref0x/SXSEXP/issues/6) for more information.
 
 ## Instructions
 
-* Select Platform ToolSet first for project in solution you want to build (Project->Properties->General): 
+* Select Platform ToolSet first for the project in the solution you want to build (Project->Properties->General): 
   * v142 for Visual Studio 2019;
   * v143 for Visual Studio 2022.
 * Windows SDK 10 or above must be installed.
 
 # Authors
 
-(c) 2016 - 2024 SXSEXP Project
+(c) 2016 - 2025 SXSEXP Project
