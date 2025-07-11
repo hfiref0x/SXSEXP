@@ -440,10 +440,11 @@ BOOL ProcessFileDCS(
             *OutputFileBuffer = dataBuffer;
             *OutputFileBufferSize = fileHeader->UncompressedFileSize;
         }
-
-        HeapFree(g_Heap, 0, dataBuffer);
-        *OutputFileBuffer = NULL;
-        *OutputFileBufferSize = 0;
+        else {
+            HeapFree(g_Heap, 0, dataBuffer);
+            *OutputFileBuffer = NULL;
+            *OutputFileBufferSize = 0;
+        }
 
     } while (FALSE);
 
@@ -700,7 +701,7 @@ UINT ProcessTargetDirectory(
     SourcePathLength = _strlen(SourcePath) * sizeof(WCHAR);
     DestinationPathLength = _strlen(DestinationPath) * sizeof(WCHAR);
 
-    memIO = SourcePathLength + (MAX_PATH * sizeof(WCHAR));
+    memIO = SourcePathLength + 8 * sizeof(WCHAR);
     lpTemp = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
     if (lpTemp == NULL)
         return ERROR_OUTOFMEMORY;
@@ -715,9 +716,9 @@ UINT ProcessTargetDirectory(
                 if (!ValidDir(data))
                     continue;
                 cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
-                memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                memIO = SourcePathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
                 lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                memIO = DestinationPathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
                 lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
                 if (lpSourceChildPath && lpDestChildPath) {
                     _strcpy(lpSourceChildPath, SourcePath);
@@ -749,9 +750,9 @@ UINT ProcessTargetDirectory(
             }
             else {
                 cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
-                memIO = SourcePathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                memIO = SourcePathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
                 lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                memIO = DestinationPathLength + cDataLen + (MAX_PATH * sizeof(WCHAR));
+                memIO = DestinationPathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
                 lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
                 if (lpSourceChildPath && lpDestChildPath) {
                     _strcpy(lpSourceChildPath, SourcePath);
@@ -792,59 +793,110 @@ UINT ProcessTargetPath(
 )
 {
     LPWSTR lpSourceTempPath = NULL, lpDestTempPath = NULL;
-    WCHAR szResolvedSource[MAX_PATH + 1], szResolvedDest[MAX_PATH + 1];
-    SIZE_T memIO = 0;
+    LPWSTR lpResolvedSource = NULL, lpResolvedDest = NULL;
+    LPWSTR lpParentDir = NULL, lastSlash = NULL, p = NULL;
+    SIZE_T memIO = 0, srcLen = 0, dstLen = 0, len = 0, parentLen = 0;
     UINT uResult = ERROR_SUCCESS;
-    SIZE_T len;
+    DWORD requiredLen, attr;
 
-    // Normalize input paths
-    if (!GetFullPathName(SourcePath, MAX_PATH, szResolvedSource, NULL) ||
-        !GetFullPathName(DestinationPath, MAX_PATH, szResolvedDest, NULL))
-    {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Failed to normalize paths"));
-        return ERROR_INVALID_PARAMETER;
-    }
-    // Check for self-recursion
-    if (_strcmpi(szResolvedSource, szResolvedDest) == 0) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source and destination paths must differ"));
-        return ERROR_INVALID_PARAMETER;
-    }
+    do {
 
-    memIO = (MAX_PATH + _strlen(szResolvedSource)) * sizeof(WCHAR);
-    lpSourceTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-    if (lpSourceTempPath == NULL)
-        return ERROR_OUTOFMEMORY;
+        memIO = (UNICODE_STRING_MAX_CHARS + 1) * sizeof(WCHAR);
+        lpResolvedSource = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+        lpResolvedDest = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+        if (lpResolvedSource == NULL || lpResolvedDest == NULL) {
+            uResult = ERROR_OUTOFMEMORY;
+            break;
+        }
 
-    memIO = (MAX_PATH + _strlen(szResolvedDest)) * sizeof(WCHAR);
-    lpDestTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-    if (lpDestTempPath == NULL) {
-        HeapFree(g_Heap, 0, lpSourceTempPath);
-        return ERROR_OUTOFMEMORY;
-    }
+        // Normalize path
+        requiredLen = GetFullPathName(SourcePath, (DWORD)(memIO / sizeof(WCHAR)), lpResolvedSource, NULL);
+        if (requiredLen == 0 || requiredLen >= (memIO / sizeof(WCHAR))) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Failed to normalize source path"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+        requiredLen = GetFullPathName(DestinationPath, (DWORD)(memIO / sizeof(WCHAR)), lpResolvedDest, NULL);
+        if (requiredLen == 0 || requiredLen >= (memIO / sizeof(WCHAR))) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Failed to normalize destination path"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
 
-    _strcpy(lpSourceTempPath, szResolvedSource);
-    _strcpy(lpDestTempPath, szResolvedDest);
+        // Self-recursion check
+        if (_strcmpi(lpResolvedSource, lpResolvedDest) == 0) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source and destination paths must differ"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
 
-    len = _strlen(lpSourceTempPath);
-    if (IsDir(lpSourceTempPath) && IsDir(lpDestTempPath)) {
-        if (lpSourceTempPath[len - 1] != TEXT('\\'))
-            _strcat(lpSourceTempPath, TEXT("\\"));
-        len = _strlen(lpDestTempPath);
-        if (lpDestTempPath[len - 1] != TEXT('\\'))
-            _strcat(lpDestTempPath, TEXT("\\"));
+        // Directory overlap check
+        srcLen = _strlen(lpResolvedSource);
+        dstLen = _strlen(lpResolvedDest);
+        if ((srcLen < dstLen && _strncmp(lpResolvedDest, lpResolvedSource, srcLen) == 0 && lpResolvedDest[srcLen] == TEXT('\\')) ||
+            (dstLen < srcLen && _strncmp(lpResolvedSource, lpResolvedDest, dstLen) == 0 && lpResolvedSource[dstLen] == TEXT('\\')))
+        {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source and destination paths overlap"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
 
-        uResult = ProcessTargetDirectory(lpSourceTempPath, lpDestTempPath);
-    }
-    else if (!IsDir(lpSourceTempPath)) {
-        uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
-    }
-    else {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: invalid paths specified"));
-        uResult = ERROR_INVALID_PARAMETER;
-    }
+        memIO = (_strlen(lpResolvedSource) + MAX_PATH) * sizeof(WCHAR);
+        lpSourceTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+        memIO = (_strlen(lpResolvedDest) + MAX_PATH) * sizeof(WCHAR);
+        lpDestTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+        if (lpSourceTempPath == NULL || lpDestTempPath == NULL) {
+            uResult = ERROR_OUTOFMEMORY;
+            break;
+        }
 
-    HeapFree(g_Heap, 0, lpSourceTempPath);
-    HeapFree(g_Heap, 0, lpDestTempPath);
+        _strcpy(lpSourceTempPath, lpResolvedSource);
+        _strcpy(lpDestTempPath, lpResolvedDest);
+
+        len = _strlen(lpSourceTempPath);
+        if (IsDir(lpSourceTempPath) && IsDir(lpDestTempPath)) {
+            if (len > 0 && lpSourceTempPath[len - 1] != TEXT('\\'))
+                _strcat(lpSourceTempPath, TEXT("\\"));
+
+            len = _strlen(lpDestTempPath);
+            if (len > 0 && lpDestTempPath[len - 1] != TEXT('\\'))
+                _strcat(lpDestTempPath, TEXT("\\"));
+
+            uResult = ProcessTargetDirectory(lpSourceTempPath, lpDestTempPath);
+        }
+        else if (!IsDir(lpSourceTempPath)) {
+            parentLen = _strlen(lpDestTempPath);
+            lpParentDir = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, (parentLen + 1) * sizeof(WCHAR));
+            if (lpParentDir) {
+                _strcpy(lpParentDir, lpDestTempPath);
+                lastSlash = NULL;
+                p = lpParentDir;
+                while (*p) {
+                    if (*p == TEXT('\\')) lastSlash = p;
+                    ++p;
+                }
+                if (lastSlash && lastSlash != lpParentDir) {
+                    *lastSlash = 0;
+                    attr = GetFileAttributes(lpParentDir);
+                    if (attr == INVALID_FILE_ATTRIBUTES) {
+                        CreateDirectory(lpParentDir, NULL);
+                    }
+                }
+                HeapFree(g_Heap, 0, lpParentDir);
+            }
+            uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
+        }
+        else {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: invalid paths specified"));
+            uResult = ERROR_INVALID_PARAMETER;
+        }
+
+    } while (FALSE);
+
+    if (lpSourceTempPath) HeapFree(g_Heap, 0, lpSourceTempPath);
+    if (lpDestTempPath) HeapFree(g_Heap, 0, lpDestTempPath);
+    if (lpResolvedSource) HeapFree(g_Heap, 0, lpResolvedSource);
+    if (lpResolvedDest) HeapFree(g_Heap, 0, lpResolvedDest);
 
     return uResult;
 }

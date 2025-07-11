@@ -57,6 +57,9 @@
     <ClCompile Include="sup.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="minirtl\_strncmp.c">
+      <Filter>minirtl</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="minirtl\cmdline.h">
