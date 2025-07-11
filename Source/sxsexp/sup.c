@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2023
+*  (C) COPYRIGHT AUTHORS, 2023 - 2025
 *
 *  TITLE:       SUP.C
 *
-*  VERSION:     1.40
+*  VERSION:     1.43
 *
-*  DATE:        19 Jul 2023
+*  DATE:        10 Jul 2025
 *
 *  Program support routines.
 *
@@ -137,6 +137,10 @@ BOOL supWriteBufferToFile(
 {
     HANDLE hFile;
     DWORD bytesIO = 0;
+    BOOL bResult = FALSE;
+
+    if (BufferSize == 0) // treat empty file as success
+        return TRUE;
 
     hFile = CreateFile(lpFileName,
         GENERIC_WRITE,
@@ -147,10 +151,10 @@ BOOL supWriteBufferToFile(
         NULL);
 
     if (hFile != INVALID_HANDLE_VALUE) {
-        WriteFile(hFile, Buffer, BufferSize, &bytesIO, NULL);
+        bResult = WriteFile(hFile, Buffer, BufferSize, &bytesIO, NULL) && (bytesIO == BufferSize);
         CloseHandle(hFile);
     }
-    return (bytesIO == BufferSize);
+    return bResult;
 }
 
 __inline WCHAR nibbletoh(BYTE c, BOOLEAN upcase)
@@ -186,7 +190,10 @@ LPWSTR supPrintHash(
     BYTE    x;
     SIZE_T  sz;
 
-    sz = (Length + sizeof(WCHAR)) * sizeof(WCHAR);
+    if (Length == 0 || Buffer == NULL)
+        return NULL;
+
+    sz = (((SIZE_T)Length) * 2 + 1) * sizeof(WCHAR);
     lpText = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, sz * 2);
 
     if (lpText) {
@@ -332,16 +339,17 @@ VOID supPrintDeltaHeaderInfo(
     _strcat(szBuffer, TEXT(":"));
     ultohex(DeltaHeaderInfo->TargetFileTime.dwHighDateTime, _strend(szBuffer));
 
-    FileTimeToLocalFileTime(&DeltaHeaderInfo->TargetFileTime, &localFileTime);
-    FileTimeToSystemTime(&localFileTime, &systemTime);
-
-    wsprintf(_strend(szBuffer), L"\t%02hu:%02hu:%02hu, %02hu %ws %04hu",
-        systemTime.wHour,
-        systemTime.wMinute,
-        systemTime.wSecond,
-        systemTime.wDay,
-        lpszMonths[systemTime.wMonth - 1],
-        systemTime.wYear);
+    if (FileTimeToLocalFileTime(&DeltaHeaderInfo->TargetFileTime, &localFileTime) &&
+        FileTimeToSystemTime(&localFileTime, &systemTime))
+    {
+        wsprintf(_strend(szBuffer), L"\t%02hu:%02hu:%02hu, %02hu %ws %04hu",
+            systemTime.wHour,
+            systemTime.wMinute,
+            systemTime.wSecond,
+            systemTime.wDay,
+            lpszMonths[(systemTime.wMonth ? systemTime.wMonth - 1 : 0)],
+            systemTime.wYear);
+    }
 
     supConsoleWriteLine(Console, szBuffer);
 
@@ -402,7 +410,7 @@ VOID supPrintDeltaHeaderInfo(
 */
 CFILE_TYPE supGetFileType(
     _In_ PVOID FileBuffer,
-	_In_ ULONG fileSize
+    _In_ ULONG fileSize
 )
 {
     CFILE_TYPE Result = ftUnknown;
@@ -415,8 +423,7 @@ CFILE_TYPE supGetFileType(
     //
     if (*((BYTE*)FileBuffer) == 'D' &&
         *((BYTE*)FileBuffer + 1) == 'C' &&
-        *((BYTE*)FileBuffer + 3) == 1
-        )
+        *((BYTE*)FileBuffer + 3) == 1)
     {
         switch (*((BYTE*)FileBuffer + 2)) {
 
@@ -608,11 +615,9 @@ VOID supConsoleClear(
 
         dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
 
-        if (FillConsoleOutputCharacter(handle, TEXT(' '),
-            dwConSize, coordScreen, &cCharsWritten) &&
+        if (FillConsoleOutputCharacter(handle, TEXT(' '), dwConSize, coordScreen, &cCharsWritten) &&
             GetConsoleScreenBufferInfo(handle, &csbi) &&
-            FillConsoleOutputAttribute(handle, csbi.wAttributes,
-                dwConSize, coordScreen, &cCharsWritten))
+            FillConsoleOutputAttribute(handle, csbi.wAttributes, dwConSize, coordScreen, &cCharsWritten))
         {
             SetConsoleCursorPosition(handle, coordScreen);
         }
@@ -634,12 +639,18 @@ VOID supConsoleWriteWorker(
     _In_ BOOL WriteError
 )
 {
-    SIZE_T size;
+    SIZE_T size, len;
     DWORD bytesIO;
     LPWSTR buffer;
-    HANDLE hOutput = WriteError ? Console->ErrorHandle : Console->OutputHandle;
+    HANDLE hOutput;
 
-    size = (6 + _strlen(lpText)) * sizeof(WCHAR);
+    if (!lpText)
+        return;
+
+    hOutput = WriteError ? Console->ErrorHandle : Console->OutputHandle;
+
+    len = _strlen(lpText);
+    size = (6 + len + 2) * sizeof(WCHAR);
     buffer = (LPWSTR)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
     if (buffer) {
 
@@ -647,13 +658,13 @@ VOID supConsoleWriteWorker(
         if (UseReturn)
             _strcat(buffer, TEXT("\r\n"));
 
-        size = _strlen(buffer);
+        len = _strlen(buffer);
         if (Console->Mode == ConsoleModeFile) {
-            size *= sizeof(WCHAR);
-            WriteFile(hOutput, buffer, (DWORD)size, &bytesIO, NULL);
+            len *= sizeof(WCHAR);
+            WriteFile(hOutput, buffer, (DWORD)len, &bytesIO, NULL);
         }
         else {
-            WriteConsole(hOutput, buffer, (DWORD)size, &bytesIO, NULL);
+            WriteConsole(hOutput, buffer, (DWORD)len, &bytesIO, NULL);
         }
 
         HeapFree(GetProcessHeap(), 0, buffer);
@@ -681,18 +692,12 @@ VOID supConsoleDisplayWin32Error(
     RtlSecureZeroMemory(buffer, sizeof(buffer));
     RtlSecureZeroMemory(errorBuffer, sizeof(errorBuffer));
 
-    wsprintf(buffer, TEXT("%ws, GetLastError %lu"),
-        Message,
-        dwError);
+    if (Message)
+        wsprintf(buffer, TEXT("%ws, GetLastError %lu"), Message, dwError);
+    else
+        wsprintf(buffer, TEXT("GetLastError %lu"), dwError);
 
-    if (FormatMessage(dwFlags,
-        NULL,
-        dwError,
-        0,
-        errorBuffer,
-        RTL_NUMBER_OF(errorBuffer),
-        NULL))
-    {
+    if (FormatMessage(dwFlags, NULL, dwError, 0, errorBuffer, RTL_NUMBER_OF(errorBuffer), NULL)) {
         _strcat(buffer, TEXT(": "));
         _strcat(buffer, errorBuffer);
     }
@@ -743,30 +748,26 @@ BOOL supMapInputFile(
         //
         // Check size against the smallest known structure.
         //
-        if (fileSize.LowPart < sizeof(DCM_HEADER)) {
+        if (fileSize.QuadPart < (LONGLONG)sizeof(DCM_HEADER)) {
             dwError = ERROR_NOT_SUPPORTED;
             break;
         }
+        // Do not map > 2GB (fix case WSX #15)
+        if (fileSize.QuadPart > 0x7FFFFFFF) {
+            dwError = ERROR_FILE_TOO_LARGE;
+            break;
+        }
 
-        hFileMapping = CreateFileMapping(hFile,
-            NULL,
-            PAGE_READONLY,
-            0,
-            0,
-            NULL);
-
+        hFileMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
         if (hFileMapping == NULL) {
             dwError = GetLastError();
             break;
         }
 
-        mappedFile = MapViewOfFile(hFileMapping,
-            PAGE_READWRITE,
-            0,
-            0,
-            0);
-
-        dwError = GetLastError();
+        mappedFile = MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
+        if (mappedFile == NULL) {
+            dwError = GetLastError();
+        }
 
     } while (FALSE);
 
@@ -777,8 +778,8 @@ BOOL supMapInputFile(
         CloseHandle(hFile);
 
     *BaseAddress = mappedFile;
-    *FileSize = fileSize.LowPart;
-
+    *FileSize = (ULONG)fileSize.QuadPart;
     SetLastError(dwError);
+
     return (mappedFile != NULL);
 }
