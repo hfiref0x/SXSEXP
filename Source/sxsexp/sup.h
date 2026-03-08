@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2023 - 2024
+*  (C) COPYRIGHT AUTHORS, 2023 - 2026
 *
 *  TITLE:       SUP.H
 *
-*  VERSION:     1.42
+*  VERSION:     1.44
 *
-*  DATE:        30 Jun 2024
+*  DATE:        07 Mar 2026
 *
 *  Program support routines header file.
 *
@@ -18,11 +18,6 @@
 *******************************************************************************/
 #pragma once
 
-#define PathFileExists(lpszPath) (GetFileAttributes(lpszPath) != (DWORD)-1)
-#define IsDir(lpszPath)          ((GetFileAttributes(lpszPath) & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
-#define IsDirWithWFD(data)       ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ==  FILE_ATTRIBUTE_DIRECTORY)
-#define ValidDir(data)           (_strcmpi(data.cFileName, TEXT(".")) && _strcmpi(data.cFileName, TEXT("..")))
-
 typedef enum _CFILE_TYPE {
     ftDCD = 1,
     ftDCN,
@@ -33,6 +28,20 @@ typedef enum _CFILE_TYPE {
     ftUnknown,
     ftMax
 } CFILE_TYPE;
+
+LPWSTR supConvertToLongPath(
+    _In_ LPCWSTR lpPath);
+
+BOOL supIsDir(
+    _In_ LPCWSTR lpszPath);
+
+BOOL supPathFileExists(
+    _In_ LPCWSTR lpszPath);
+
+#define PathFileExists(lpszPath) supPathFileExists(lpszPath)
+#define IsDir(lpszPath)          supIsDir(lpszPath)
+#define IsDirWithWFD(data)       ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ==  FILE_ATTRIBUTE_DIRECTORY)
+#define ValidDir(data)           (_strcmpi(data.cFileName, TEXT(".")) && _strcmpi(data.cFileName, TEXT("..")))
 
 //
 // DC types
@@ -188,3 +197,6 @@ BOOL supMapInputFile(
     _In_ LPCWSTR FileName,
     _Out_ PULONG FileSize,
     _Out_ PVOID* BaseAddress);
+
+BOOL supCreateDirectoryRecursive(
+    _In_ LPCWSTR lpDirectory);

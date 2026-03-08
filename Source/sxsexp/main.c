@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2016 - 2025
+*  (C) COPYRIGHT AUTHORS, 2016 - 2026
 *
 *  TITLE:       MAIN.C
 *
-*  VERSION:     1.43
+*  VERSION:     1.44
 *
-*  DATE:        10 Jul 2025
+*  DATE:        07 Mar 2026
 *
 *  Program entry point.
 *
@@ -34,7 +34,7 @@ SUP_CONSOLE gConsole;
 //
 // Help output.
 //
-#define T_TITLE TEXT("SXSEXP v1.4.3 from Jul 10 2025, (c) 2016 - 2025 hfiref0x\r\n\
+#define T_TITLE TEXT("SXSEXP v1.4.4 from Mar 07 2026, (c) 2016 - 2026 hfiref0x\r\n\
 Expand compressed files from WinSxS folder (DCD01, DCN01, DCM01, DCS01 formats).\r\n")
 
 #define T_HELP  TEXT("SXSEXP <Source File> <Destination File>\r\n\
@@ -335,7 +335,7 @@ BOOL ProcessFileDCS(
     BOOL bResult = FALSE;
     DWORD numberOfBlocks = 0, i = 1, dwLastError = ERROR_SUCCESS;
     DWORD nextOffset = 0;
-    SIZE_T bytesRead = 0, bytesDecompressed = 0;
+    SIZE_T bytesRead = 0, bytesDecompressed = 0, remainingSize = 0;
     COMPRESSOR_HANDLE hDecompressor = 0;
     BYTE* dataBufferPtr = NULL;
     BYTE* dataBuffer = NULL;
@@ -352,16 +352,24 @@ BOOL ProcessFileDCS(
     }
 
     do {
-        if (!gDecompressor.CreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
-            dwLastError = GetLastError();
-            supConsoleDisplayWin32Error(&gConsole, TEXT("\r\nError, while creating decompressor"));
+        if (SourceFileSize < FIELD_OFFSET(DCS_HEADER, FirstBlock)) {
+            dwLastError = ERROR_INVALID_DATA;
+            supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, invalid DCS header"));
             break;
         }
+
         if (fileHeader->UncompressedFileSize == 0 || fileHeader->NumberOfBlocks == 0) {
             dwLastError = ERROR_INVALID_USER_BUFFER;
             supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, header fields are zero"));
             break;
         }
+
+        if (!gDecompressor.CreateDecompressor(COMPRESS_RAW | COMPRESS_ALGORITHM_LZMS, NULL, &hDecompressor)) {
+            dwLastError = GetLastError();
+            supConsoleDisplayWin32Error(&gConsole, TEXT("\r\nError, while creating decompressor"));
+            break;
+        }
+
         dataBuffer = (BYTE*)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, fileHeader->UncompressedFileSize);
         if (dataBuffer == NULL) {
             dwLastError = GetLastError();
@@ -372,14 +380,26 @@ BOOL ProcessFileDCS(
         dataBufferPtr = dataBuffer;
         numberOfBlocks = fileHeader->NumberOfBlocks;
         dcsBlock = (PDCS_BLOCK)fileHeader->FirstBlock;
+        bytesRead = FIELD_OFFSET(DCS_HEADER, FirstBlock);
 
         while (numberOfBlocks > 0) {
-            if (((BYTE*)dcsBlock + sizeof(DCS_BLOCK)) > ((BYTE*)SourceFile + SourceFileSize)) {
+
+            if ((BYTE*)dcsBlock < (BYTE*)SourceFile || (BYTE*)dcsBlock >= ((BYTE*)SourceFile + SourceFileSize)) {
                 dwLastError = ERROR_INVALID_DATA;
                 supConsoleWriteErrorLine(&gConsole, TEXT("Corrupt DCS block pointer"));
                 bResult = FALSE;
                 break;
             }
+
+            remainingSize = (SIZE_T)(((BYTE*)SourceFile + SourceFileSize) - (BYTE*)dcsBlock);
+
+            if (remainingSize < sizeof(DWORD) * 2) {
+                dwLastError = ERROR_INVALID_DATA;
+                supConsoleWriteErrorLine(&gConsole, TEXT("Corrupt DCS block header"));
+                bResult = FALSE;
+                break;
+            }
+
             RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
             _strcpy(szBuffer, TEXT("\r\nDCS_BLOCK #"));
             ultostr(i++, _strend(szBuffer));
@@ -393,49 +413,65 @@ BOOL ProcessFileDCS(
             ultohex(dcsBlock->DecompressedBlockSize, _strend(szBuffer));
             supConsoleWriteLine(&gConsole, szBuffer);
 
+            if (dcsBlock->Size < 4) {
+                dwLastError = ERROR_INVALID_DATA;
+                supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, invalid compressed block size"));
+                bResult = FALSE;
+                break;
+            }
+
             if (bytesRead + dcsBlock->Size > SourceFileSize) {
                 dwLastError = ERROR_INVALID_DATA;
                 supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, compressed data size is bigger than file size"));
                 bResult = FALSE;
                 break;
             }
+
             if ((SIZE_T)bytesDecompressed + dcsBlock->DecompressedBlockSize > fileHeader->UncompressedFileSize) {
                 dwLastError = ERROR_INVALID_DATA;
                 supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, uncompressed data size is bigger than known uncompressed file size"));
                 bResult = FALSE;
                 break;
             }
-            if ((BYTE*)dcsBlock + dcsBlock->Size + 4 > (BYTE*)SourceFile + SourceFileSize) {
+
+            if ((SIZE_T)dcsBlock->Size + 4 > remainingSize) {
                 dwLastError = ERROR_INVALID_DATA;
                 supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, block overruns file"));
                 bResult = FALSE;
                 break;
             }
+
             bResult = gDecompressor.Decompress(hDecompressor,
                 dcsBlock->Data,
-                (SIZE_T)((dcsBlock->Size > 4) ? dcsBlock->Size - 4 : 0), // Exclude DCS data
+                (SIZE_T)(dcsBlock->Size - 4),
                 (BYTE*)dataBufferPtr,
                 dcsBlock->DecompressedBlockSize,
                 NULL);
+
             if (!bResult) {
                 dwLastError = GetLastError();
                 supConsoleDisplayWin32Error(&gConsole, TEXT("Error, decompression failure"));
                 break;
             }
+
             supConsoleWriteLine(&gConsole, TEXT(" Block has been decompressed successfully"));
+
             dataBufferPtr = (BYTE*)dataBufferPtr + dcsBlock->DecompressedBlockSize;
             bytesDecompressed += dcsBlock->DecompressedBlockSize;
             nextOffset = dcsBlock->Size + 4;
+
             if (--numberOfBlocks > 0) {
                 dcsBlock = (PDCS_BLOCK)(((BYTE*)dcsBlock) + nextOffset);
                 bytesRead += nextOffset;
             }
         }
+
         if (bResult && bytesDecompressed != fileHeader->UncompressedFileSize) {
             dwLastError = ERROR_INVALID_DATA;
             supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, total decompressed size mismatch"));
             bResult = FALSE;
         }
+
         if (bResult) {
             *OutputFileBuffer = dataBuffer;
             *OutputFileBufferSize = fileHeader->UncompressedFileSize;
@@ -695,87 +731,122 @@ UINT ProcessTargetDirectory(
     HANDLE hFindFile = INVALID_HANDLE_VALUE;
     WIN32_FIND_DATA data;
     UINT uResult = ERROR_SUCCESS;
+    DWORD attr;
     LPWSTR lpTemp = NULL, lpSourceChildPath = NULL, lpDestChildPath = NULL;
-    SIZE_T memIO = 0, cDataLen = 0, SourcePathLength = 0, DestinationPathLength = 0;
+    LPWSTR lpFindPath = NULL, lpLongPath = NULL;
+    SIZE_T cDataLen = 0, SourcePathLength = 0, DestinationPathLength = 0;
+    SIZE_T maxSourceChildLength = 0, maxDestChildLength = 0;
+    SIZE_T maxFindPathLength = 0, memIO = 0;
 
-    SourcePathLength = _strlen(SourcePath) * sizeof(WCHAR);
-    DestinationPathLength = _strlen(DestinationPath) * sizeof(WCHAR);
+    SourcePathLength = _strlen(SourcePath);
+    DestinationPathLength = _strlen(DestinationPath);
 
-    memIO = SourcePathLength + 8 * sizeof(WCHAR);
-    lpTemp = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-    if (lpTemp == NULL)
+    maxSourceChildLength = UNICODE_STRING_MAX_CHARS + 1;
+    maxDestChildLength = UNICODE_STRING_MAX_CHARS + 1;
+    maxFindPathLength = UNICODE_STRING_MAX_CHARS + 1;
+
+    memIO = maxSourceChildLength * sizeof(WCHAR);
+    lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpSourceChildPath == NULL)
         return ERROR_OUTOFMEMORY;
+
+    memIO = maxDestChildLength * sizeof(WCHAR);
+    lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpDestChildPath == NULL) {
+        HeapFree(g_Heap, 0, lpSourceChildPath);
+        return ERROR_OUTOFMEMORY;
+    }
+
+    memIO = maxFindPathLength * sizeof(WCHAR);
+    lpTemp = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
+    if (lpTemp == NULL) {
+        HeapFree(g_Heap, 0, lpDestChildPath);
+        HeapFree(g_Heap, 0, lpSourceChildPath);
+        return ERROR_OUTOFMEMORY;
+    }
 
     _strcpy(lpTemp, SourcePath);
     _strcat(lpTemp, TEXT("*.*"));
 
-    hFindFile = FindFirstFile(lpTemp, &data);
+    lpFindPath = supConvertToLongPath(lpTemp);
+    if (lpFindPath == NULL)
+        lpFindPath = lpTemp;
+
+    hFindFile = FindFirstFile(lpFindPath, &data);
     if (hFindFile != INVALID_HANDLE_VALUE) {
+
         do {
+
+            cDataLen = _strlen(data.cFileName);
+
+            if ((SourcePathLength + cDataLen + 2) >= maxSourceChildLength ||
+                (DestinationPathLength + cDataLen + 2) >= maxDestChildLength)
+            {
+                supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: path is too long"));
+                uResult = ERROR_BUFFER_OVERFLOW;
+                break;
+            }
+
+            RtlSecureZeroMemory(lpSourceChildPath, maxSourceChildLength * sizeof(WCHAR));
+            RtlSecureZeroMemory(lpDestChildPath, maxDestChildLength * sizeof(WCHAR));
+
+            _strcpy(lpSourceChildPath, SourcePath);
+            _strcat(lpSourceChildPath, data.cFileName);
+
+            _strcpy(lpDestChildPath, DestinationPath);
+            _strcat(lpDestChildPath, data.cFileName);
+
             if (IsDirWithWFD(data)) {
+
                 if (!ValidDir(data))
                     continue;
-                cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
-                memIO = SourcePathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
-                lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                memIO = DestinationPathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
-                lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                if (lpSourceChildPath && lpDestChildPath) {
-                    _strcpy(lpSourceChildPath, SourcePath);
-                    _strcat(lpSourceChildPath, data.cFileName);
-                    _strcat(lpSourceChildPath, TEXT("\\"));
-                    _strcpy(lpDestChildPath, DestinationPath);
-                    _strcat(lpDestChildPath, data.cFileName);
-                    _strcat(lpDestChildPath, TEXT("\\"));
-                    if (!CreateDirectory(lpDestChildPath, NULL) && !PathFileExists(lpDestChildPath)) {
+
+                _strcat(lpSourceChildPath, TEXT("\\"));
+                _strcat(lpDestChildPath, TEXT("\\"));
+
+                lpLongPath = supConvertToLongPath(lpDestChildPath);
+                if (lpLongPath == NULL)
+                    lpLongPath = lpDestChildPath;
+
+                if (!CreateDirectory(lpLongPath, NULL)) {
+                    attr = GetFileAttributes(lpLongPath);
+                    if (attr == INVALID_FILE_ATTRIBUTES ||
+                        ((attr & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY))
+                    {
                         supConsoleWriteError(&gConsole, TEXT("SXSEXP: unable to create directory "));
                         supConsoleWriteErrorLine(&gConsole, lpDestChildPath);
+                        if (lpLongPath != lpDestChildPath)
+                            HeapFree(g_Heap, 0, lpLongPath);
                         uResult = ERROR_DIRECTORY;
-                        HeapFree(g_Heap, 0, lpDestChildPath);
-                        HeapFree(g_Heap, 0, lpSourceChildPath);
                         break;
                     }
-                    uResult = ProcessTargetDirectory(lpSourceChildPath, lpDestChildPath);
-                    HeapFree(g_Heap, 0, lpDestChildPath);
-                    HeapFree(g_Heap, 0, lpSourceChildPath);
-                    if (uResult != ERROR_SUCCESS)
-                        break;
                 }
-                else {
-                    if (lpSourceChildPath) HeapFree(g_Heap, 0, lpSourceChildPath);
-                    if (lpDestChildPath) HeapFree(g_Heap, 0, lpDestChildPath);
-                    uResult = ERROR_OUTOFMEMORY;
+
+                if (lpLongPath != lpDestChildPath)
+                    HeapFree(g_Heap, 0, lpLongPath);
+
+                uResult = ProcessTargetDirectory(lpSourceChildPath, lpDestChildPath);
+                if (uResult != ERROR_SUCCESS)
                     break;
-                }
             }
             else {
-                cDataLen = _strlen(data.cFileName) * sizeof(WCHAR);
-                memIO = SourcePathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
-                lpSourceChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                memIO = DestinationPathLength + cDataLen + MAX_PATH * sizeof(WCHAR);
-                lpDestChildPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-                if (lpSourceChildPath && lpDestChildPath) {
-                    _strcpy(lpSourceChildPath, SourcePath);
-                    _strcat(lpSourceChildPath, data.cFileName);
-                    _strcpy(lpDestChildPath, DestinationPath);
-                    _strcat(lpDestChildPath, data.cFileName);
-                    uResult = ProcessTargetFileAndWriteOutput(lpSourceChildPath, lpDestChildPath);
-                    HeapFree(g_Heap, 0, lpDestChildPath);
-                    HeapFree(g_Heap, 0, lpSourceChildPath);
-                    if (uResult != ERROR_SUCCESS)
-                        break;
-                }
-                else {
-                    if (lpSourceChildPath) HeapFree(g_Heap, 0, lpSourceChildPath);
-                    if (lpDestChildPath) HeapFree(g_Heap, 0, lpDestChildPath);
-                    uResult = ERROR_OUTOFMEMORY;
+                uResult = ProcessTargetFileAndWriteOutput(lpSourceChildPath, lpDestChildPath);
+                if (uResult != ERROR_SUCCESS)
                     break;
-                }
             }
+
         } while (FindNextFile(hFindFile, &data));
+
         FindClose(hFindFile);
     }
+
+    if (lpFindPath != lpTemp)
+        HeapFree(g_Heap, 0, lpFindPath);
+
     HeapFree(g_Heap, 0, lpTemp);
+    HeapFree(g_Heap, 0, lpDestChildPath);
+    HeapFree(g_Heap, 0, lpSourceChildPath);
+
     return uResult;
 }
 
@@ -797,7 +868,7 @@ UINT ProcessTargetPath(
     LPWSTR lpParentDir = NULL, lastSlash = NULL, p = NULL;
     SIZE_T memIO = 0, srcLen = 0, dstLen = 0, len = 0, parentLen = 0;
     UINT uResult = ERROR_SUCCESS;
-    DWORD requiredLen, attr;
+    DWORD requiredLen;
 
     do {
 
@@ -809,13 +880,16 @@ UINT ProcessTargetPath(
             break;
         }
 
-        // Normalize path
+        //
+        // Normalize source and destination paths.
+        //
         requiredLen = GetFullPathName(SourcePath, (DWORD)(memIO / sizeof(WCHAR)), lpResolvedSource, NULL);
         if (requiredLen == 0 || requiredLen >= (memIO / sizeof(WCHAR))) {
             supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Failed to normalize source path"));
             uResult = ERROR_INVALID_PARAMETER;
             break;
         }
+
         requiredLen = GetFullPathName(DestinationPath, (DWORD)(memIO / sizeof(WCHAR)), lpResolvedDest, NULL);
         if (requiredLen == 0 || requiredLen >= (memIO / sizeof(WCHAR))) {
             supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Failed to normalize destination path"));
@@ -823,27 +897,30 @@ UINT ProcessTargetPath(
             break;
         }
 
-        // Self-recursion check
+        //
+        // Same path check.
+        //
         if (_strcmpi(lpResolvedSource, lpResolvedDest) == 0) {
             supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source and destination paths must differ"));
             uResult = ERROR_INVALID_PARAMETER;
             break;
         }
 
-        // Directory overlap check
+        //
+        // Overlap check.
+        //
         srcLen = _strlen(lpResolvedSource);
         dstLen = _strlen(lpResolvedDest);
-        if ((srcLen < dstLen && _strncmp(lpResolvedDest, lpResolvedSource, srcLen) == 0 && lpResolvedDest[srcLen] == TEXT('\\')) ||
-            (dstLen < srcLen && _strncmp(lpResolvedSource, lpResolvedDest, dstLen) == 0 && lpResolvedSource[dstLen] == TEXT('\\')))
+        if ((srcLen < dstLen && _strncmpi(lpResolvedDest, lpResolvedSource, srcLen) == 0 && lpResolvedDest[srcLen] == TEXT('\\')) ||
+            (dstLen < srcLen && _strncmpi(lpResolvedSource, lpResolvedDest, dstLen) == 0 && lpResolvedSource[dstLen] == TEXT('\\')))
         {
             supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source and destination paths overlap"));
             uResult = ERROR_INVALID_PARAMETER;
             break;
         }
 
-        memIO = (_strlen(lpResolvedSource) + MAX_PATH) * sizeof(WCHAR);
+        memIO = (UNICODE_STRING_MAX_CHARS + 1) * sizeof(WCHAR);
         lpSourceTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
-        memIO = (_strlen(lpResolvedDest) + MAX_PATH) * sizeof(WCHAR);
         lpDestTempPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, memIO);
         if (lpSourceTempPath == NULL || lpDestTempPath == NULL) {
             uResult = ERROR_OUTOFMEMORY;
@@ -867,23 +944,31 @@ UINT ProcessTargetPath(
         else if (!IsDir(lpSourceTempPath)) {
             parentLen = _strlen(lpDestTempPath);
             lpParentDir = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, (parentLen + 1) * sizeof(WCHAR));
-            if (lpParentDir) {
-                _strcpy(lpParentDir, lpDestTempPath);
-                lastSlash = NULL;
-                p = lpParentDir;
-                while (*p) {
-                    if (*p == TEXT('\\')) lastSlash = p;
-                    ++p;
-                }
-                if (lastSlash && lastSlash != lpParentDir) {
-                    *lastSlash = 0;
-                    attr = GetFileAttributes(lpParentDir);
-                    if (attr == INVALID_FILE_ATTRIBUTES) {
-                        CreateDirectory(lpParentDir, NULL);
-                    }
-                }
-                HeapFree(g_Heap, 0, lpParentDir);
+            if (lpParentDir == NULL) {
+                uResult = ERROR_OUTOFMEMORY;
+                break;
             }
+
+            _strcpy(lpParentDir, lpDestTempPath);
+            lastSlash = NULL;
+            p = lpParentDir;
+            while (*p) {
+                if (*p == TEXT('\\'))
+                    lastSlash = p;
+                ++p;
+            }
+
+            if (lastSlash && lastSlash != lpParentDir) {
+                *lastSlash = 0;
+
+                if (!supCreateDirectoryRecursive(lpParentDir)) {
+                    supConsoleWriteError(&gConsole, TEXT("SXSEXP: unable to create directory "));
+                    supConsoleWriteErrorLine(&gConsole, lpParentDir);
+                    uResult = ERROR_DIRECTORY;
+                    break;
+                }
+            }
+
             uResult = ProcessTargetFileAndWriteOutput(lpSourceTempPath, lpDestTempPath);
         }
         else {
@@ -893,10 +978,16 @@ UINT ProcessTargetPath(
 
     } while (FALSE);
 
-    if (lpSourceTempPath) HeapFree(g_Heap, 0, lpSourceTempPath);
-    if (lpDestTempPath) HeapFree(g_Heap, 0, lpDestTempPath);
-    if (lpResolvedSource) HeapFree(g_Heap, 0, lpResolvedSource);
-    if (lpResolvedDest) HeapFree(g_Heap, 0, lpResolvedDest);
+    if (lpParentDir)
+        HeapFree(g_Heap, 0, lpParentDir);
+    if (lpSourceTempPath)
+        HeapFree(g_Heap, 0, lpSourceTempPath);
+    if (lpDestTempPath)
+        HeapFree(g_Heap, 0, lpDestTempPath);
+    if (lpResolvedSource)
+        HeapFree(g_Heap, 0, lpResolvedSource);
+    if (lpResolvedDest)
+        HeapFree(g_Heap, 0, lpResolvedDest);
 
     return uResult;
 }
@@ -914,70 +1005,92 @@ UINT DCDMode(
 )
 {
     DWORD dwTmp = 0;
-
     PVOID outputBuffer = NULL;
     SIZE_T size = 0;
-
+    SIZE_T bufferSize = 0;
     UINT uResult = ERROR_SUCCESS;
+    LPWSTR szSourcePath = NULL;
+    LPWSTR szSourceDeltaPath = NULL;
+    LPWSTR szDestinationPath = NULL;
 
-    WCHAR szSourcePath[MAX_PATH + 1];
-    WCHAR szSourceDeltaPath[MAX_PATH + 1];
-    WCHAR szDestinationPath[MAX_PATH + 1];
+    bufferSize = (UNICODE_STRING_MAX_CHARS + 1) * sizeof(WCHAR);
+    szSourcePath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
+    szSourceDeltaPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
+    szDestinationPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
 
-    //
-    // Source File.
-    //
-    RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
-    if (!GetCommandLineParam(lpCmdLine, 2, szSourcePath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
-        return ERROR_INVALID_PARAMETER;
-    }
+    do {
 
-    if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
-        return ERROR_INVALID_PARAMETER;
-    }
-
-    //
-    //  Source Delta File.
-    //
-    RtlSecureZeroMemory(szSourceDeltaPath, sizeof(szSourceDeltaPath));
-    if (!GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
-        return ERROR_INVALID_PARAMETER;
-    }
-
-    if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Delta Path not found"));
-        return ERROR_INVALID_PARAMETER;
-    }
-
-    //
-    //  Destination File.
-    //
-    RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
-    if (!GetCommandLineParam(lpCmdLine, 4, szDestinationPath, MAX_PATH, &dwTmp)) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
-        return ERROR_INVALID_PARAMETER;
-    }
-
-    if (dwTmp == 0) {
-        supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
-        return ERROR_INVALID_PARAMETER;
-    }
-
-    if (ProcessTargetFile(szSourceDeltaPath, &outputBuffer, &size, szSourcePath)) {
-        if (supWriteBufferToFile(szDestinationPath, outputBuffer, (DWORD)size)) {
-            supConsoleWriteLine(&gConsole, TEXT("Operation Successful"));
-            uResult = ERROR_SUCCESS;
+        if (szSourcePath == NULL || szSourceDeltaPath == NULL || szDestinationPath == NULL) {
+            uResult = ERROR_OUTOFMEMORY;
+            break;
         }
-        else {
-            supConsoleDisplayWin32Error(&gConsole, TEXT("Error, write to file"));
-            uResult = ERROR_INTERNAL_ERROR;
+
+        //
+        // Source File.
+        //
+        RtlSecureZeroMemory(szSourcePath, bufferSize);
+        if (!GetCommandLineParam(lpCmdLine, 2, szSourcePath, UNICODE_STRING_MAX_CHARS, &dwTmp)) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
         }
-        if (outputBuffer)
-            HeapFree(g_Heap, 0, outputBuffer);
-    }
+
+        if ((dwTmp == 0) || (!PathFileExists(szSourcePath))) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        //
+        //  Source Delta File.
+        //
+        RtlSecureZeroMemory(szSourceDeltaPath, bufferSize);
+        if (!GetCommandLineParam(lpCmdLine, 3, szSourceDeltaPath, UNICODE_STRING_MAX_CHARS, &dwTmp)) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        if ((dwTmp == 0) || (!PathFileExists(szSourceDeltaPath))) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Delta Path not found"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        //
+        //  Destination File.
+        //
+        RtlSecureZeroMemory(szDestinationPath, bufferSize);
+        if (!GetCommandLineParam(lpCmdLine, 4, szDestinationPath, UNICODE_STRING_MAX_CHARS, &dwTmp)) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        if (dwTmp == 0) {
+            supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Destination Path not specified"));
+            uResult = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        if (ProcessTargetFile(szSourceDeltaPath, &outputBuffer, &size, szSourcePath)) {
+            if (supWriteBufferToFile(szDestinationPath, outputBuffer, (DWORD)size)) {
+                supConsoleWriteLine(&gConsole, TEXT("Operation Successful"));
+                uResult = ERROR_SUCCESS;
+            }
+            else {
+                supConsoleDisplayWin32Error(&gConsole, TEXT("Error, write to file"));
+                uResult = ERROR_INTERNAL_ERROR;
+            }
+            if (outputBuffer)
+                HeapFree(g_Heap, 0, outputBuffer);
+        }
+
+    } while (FALSE);
+
+    if (szSourcePath) HeapFree(g_Heap, 0, szSourcePath);
+    if (szSourceDeltaPath) HeapFree(g_Heap, 0, szSourceDeltaPath);
+    if (szDestinationPath) HeapFree(g_Heap, 0, szDestinationPath);
 
     return uResult;
 }
@@ -995,8 +1108,9 @@ void main()
     DWORD dwTmp = 0, paramId = 1;
     UINT uResult = ERROR_SUCCESS;
     LPWSTR lpCmdLine = NULL;
-    WCHAR szBuffer[MAX_PATH * 2];
-    WCHAR szSourcePath[MAX_PATH + 1], szDestinationPath[MAX_PATH + 1];
+    LPWSTR szBuffer = NULL;
+    LPWSTR szSourcePath = NULL, szDestinationPath = NULL;
+    SIZE_T bufferSize = 0;
 
     __security_init_cookie();
 
@@ -1014,9 +1128,18 @@ void main()
         supConsoleInit(&gConsole);
         supConsoleWriteLine(&gConsole, T_TITLE);
 
+        bufferSize = (UNICODE_STRING_MAX_CHARS + 1) * sizeof(WCHAR);
+        szBuffer = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
+        szSourcePath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
+        szDestinationPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, bufferSize);
+        if (szBuffer == NULL || szSourcePath == NULL || szDestinationPath == NULL) {
+            uResult = ERROR_OUTOFMEMORY;
+            break;
+        }
+
         lpCmdLine = GetCommandLine();
-        RtlSecureZeroMemory(szBuffer, sizeof(szBuffer));
-        if (!GetCommandLineParam(lpCmdLine, paramId, szBuffer, MAX_PATH, &dwTmp)) {
+        RtlSecureZeroMemory(szBuffer, bufferSize);
+        if (!GetCommandLineParam(lpCmdLine, paramId, szBuffer, UNICODE_STRING_MAX_CHARS, &dwTmp)) {
             supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
             uResult = ERROR_INVALID_PARAMETER;
             break;
@@ -1034,8 +1157,8 @@ void main()
                 break;
             }
             else {
-                RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
-                if (GetModuleFileName(gMsDeltaContext.hModule, (LPWSTR)&szSourcePath, MAX_PATH)) {
+                RtlSecureZeroMemory(szSourcePath, bufferSize);
+                if (GetModuleFileName(gMsDeltaContext.hModule, szSourcePath, UNICODE_STRING_MAX_CHARS)) {
                     supConsoleWriteLine(&gConsole, TEXT("SXSEXP: Loaded MsDelta.dll"));
                     supConsoleWriteLine(&gConsole, szSourcePath);
                 }
@@ -1046,8 +1169,8 @@ void main()
                 break;
             }
 
-            RtlSecureZeroMemory(szSourcePath, sizeof(szSourcePath));
-            _strncpy(szSourcePath, MAX_PATH, szBuffer, MAX_PATH);
+            RtlSecureZeroMemory(szSourcePath, bufferSize);
+            _strncpy(szSourcePath, UNICODE_STRING_MAX_CHARS, szBuffer, UNICODE_STRING_MAX_CHARS);
 
             if (!PathFileExists(szSourcePath)) {
                 supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Source Path not found"));
@@ -1057,8 +1180,8 @@ void main()
 
             dwTmp = 0;
             paramId++;
-            RtlSecureZeroMemory(szDestinationPath, sizeof(szDestinationPath));
-            if (!GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, MAX_PATH, &dwTmp)) {
+            RtlSecureZeroMemory(szDestinationPath, bufferSize);
+            if (!GetCommandLineParam(lpCmdLine, paramId, szDestinationPath, UNICODE_STRING_MAX_CHARS, &dwTmp)) {
                 supConsoleWriteErrorLine(&gConsole, TEXT("SXSEXP: Fatal error, command line param is too long"));
                 uResult = ERROR_INVALID_PARAMETER;
                 break;
@@ -1084,6 +1207,10 @@ void main()
         }
 
     } while (FALSE);
+
+    if (szBuffer) HeapFree(g_Heap, 0, szBuffer);
+    if (szSourcePath) HeapFree(g_Heap, 0, szSourcePath);
+    if (szDestinationPath) HeapFree(g_Heap, 0, szDestinationPath);
 
     if (g_Heap != NULL)
         HeapDestroy(g_Heap);

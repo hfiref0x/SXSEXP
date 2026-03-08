@@ -9,7 +9,7 @@ BOOL GetCommandLineParamW(
 	)
 {
 	ULONG	c, plen = 0;
-	TCHAR	divider;
+	WCHAR	divider;
 
 	if (ParamLen != NULL)
 		*ParamLen = 0;
@@ -76,7 +76,7 @@ BOOL GetCommandLineParamA(
 	)
 {
 	ULONG	c, plen = 0;
-	TCHAR	divider;
+	CHAR	divider;
 
 	if (CmdLine == NULL)
 		return FALSE;

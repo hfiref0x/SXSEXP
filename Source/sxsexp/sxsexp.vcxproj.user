@@ -1,8 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LocalDebuggerCommandArguments>c:\test C:\temp</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>c:\test\manifest.dcm C:\test\unp.txt</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+    <LocalDebuggerCommandArgumentsHistory>c:\test\dcs C:\test|c:\test\dcs C:\test\extracted|c:\test\dcs C:\temp|c:\test\dcs\manifest.dcm C:\test\unp.txt|c:\test\manifest.dcm C:\test\unp.txt|</LocalDebuggerCommandArgumentsHistory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LocalDebuggerCommandArguments>

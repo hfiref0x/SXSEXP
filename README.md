@@ -48,9 +48,10 @@ If you are having trouble expanding files, try using updatecompression.dll inste
 
 * Select Platform ToolSet first for the project in the solution you want to build (Project->Properties->General): 
   * v142 for Visual Studio 2019;
-  * v143 for Visual Studio 2022.
+  * v143 for Visual Studio 2022;
+  * v145 for Visual Studio 2026.
 * Windows SDK 10 or above must be installed.
 
 # Authors
 
-(c) 2016 - 2025 SXSEXP Project
+(c) 2016 - 2026 SXSEXP Project

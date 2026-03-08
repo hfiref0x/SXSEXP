@@ -1,12 +1,12 @@
 /*******************************************************************************
 *
-*  (C) COPYRIGHT AUTHORS, 2023 - 2025
+*  (C) COPYRIGHT AUTHORS, 2023 - 2026
 *
 *  TITLE:       SUP.C
 *
-*  VERSION:     1.43
+*  VERSION:     1.44
 *
-*  DATE:        10 Jul 2025
+*  DATE:        07 Mar 2026
 *
 *  Program support routines.
 *
@@ -138,17 +138,27 @@ BOOL supWriteBufferToFile(
     HANDLE hFile;
     DWORD bytesIO = 0;
     BOOL bResult = FALSE;
+    LPWSTR lpLongPath = NULL;
 
-    if (BufferSize == 0) // treat empty file as success
+    //
+    // Return TRUE for zero length files to suppress error output. Not a bug.
+    //
+    if (BufferSize == 0)
         return TRUE;
 
-    hFile = CreateFile(lpFileName,
+    lpLongPath = supConvertToLongPath(lpFileName);
+    if (lpLongPath == NULL)
+        return FALSE;
+
+    hFile = CreateFile(lpLongPath,
         GENERIC_WRITE,
         0,
         NULL,
         CREATE_ALWAYS,
         0,
         NULL);
+
+    HeapFree(g_Heap, 0, lpLongPath);
 
     if (hFile != INVALID_HANDLE_VALUE) {
         bResult = WriteFile(hFile, Buffer, BufferSize, &bytesIO, NULL) && (bytesIO == BufferSize);
@@ -185,31 +195,29 @@ LPWSTR supPrintHash(
     _In_ BOOLEAN UpcaseHex
 )
 {
-    ULONG   c;
-    PWCHAR  lpText;
-    BYTE    x;
-    SIZE_T  sz;
+    ULONG c;
+    SIZE_T sz;
+    BYTE x;
+    LPWSTR lpText;
+    LPWSTR lpOut;
 
     if (Length == 0 || Buffer == NULL)
         return NULL;
 
-    sz = (((SIZE_T)Length) * 2 + 1) * sizeof(WCHAR);
-    lpText = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, sz * 2);
+    sz = ((((SIZE_T)Length) * 2) + 1) * sizeof(WCHAR);
+    lpText = (LPWSTR)HeapAlloc(g_Heap, 0, sz);
+    if (lpText == NULL)
+        return NULL;
 
-    if (lpText) {
+    lpOut = lpText;
 
-        for (c = 0; c < Length; ++c) {
-            x = Buffer[c];
-
-            lpText[c * 2] = nibbletoh(x >> 4, UpcaseHex);
-#pragma warning(push)
-#pragma warning(disable: 6386) //nope
-            lpText[c * 2 + 1] = nibbletoh(x & 15, UpcaseHex);
-        }
-#pragma warning(disable: 6305)
-        lpText[Length * 2] = 0;
-#pragma warning(pop)
+    for (c = 0; c < Length; ++c) {
+        x = Buffer[c];
+        *lpOut++ = nibbletoh(x >> 4, UpcaseHex);
+        *lpOut++ = nibbletoh(x & 0x0F, UpcaseHex);
     }
+
+    *lpOut = 0;
 
     return lpText;
 }
@@ -577,6 +585,7 @@ VOID supConsoleInit(
 
     Console->ErrorHandle = GetStdHandle(STD_ERROR_HANDLE);
     Console->OutputHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    Console->Mode = ConsoleModeDefault;
 
     SetConsoleMode(Console->OutputHandle, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_OUTPUT);
 
@@ -722,18 +731,28 @@ BOOL supMapInputFile(
     HANDLE hFile = INVALID_HANDLE_VALUE, hFileMapping = NULL;
     PVOID mappedFile = NULL;
     LARGE_INTEGER fileSize;
+    LPWSTR lpLongPath = NULL;
 
     fileSize.QuadPart = 0;
 
     do {
 
-        hFile = CreateFile(FileName,
+        lpLongPath = supConvertToLongPath(FileName);
+        if (lpLongPath == NULL) {
+            dwError = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        hFile = CreateFile(lpLongPath,
             GENERIC_READ | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             NULL,
             OPEN_EXISTING,
             0,
             NULL);
+
+        HeapFree(g_Heap, 0, lpLongPath);
+        lpLongPath = NULL;
 
         if (hFile == INVALID_HANDLE_VALUE) {
             dwError = GetLastError();
@@ -745,14 +764,11 @@ BOOL supMapInputFile(
             break;
         }
 
-        //
-        // Check size against the smallest known structure.
-        //
         if (fileSize.QuadPart < (LONGLONG)sizeof(DCM_HEADER)) {
             dwError = ERROR_NOT_SUPPORTED;
             break;
         }
-        // Do not map > 2GB (fix case WSX #15)
+
         if (fileSize.QuadPart > 0x7FFFFFFF) {
             dwError = ERROR_FILE_TOO_LARGE;
             break;
@@ -764,12 +780,15 @@ BOOL supMapInputFile(
             break;
         }
 
-        mappedFile = MapViewOfFile(hFileMapping, PAGE_READWRITE, 0, 0, 0);
+        mappedFile = MapViewOfFile(hFileMapping, FILE_MAP_READ, 0, 0, 0);
         if (mappedFile == NULL) {
             dwError = GetLastError();
         }
 
     } while (FALSE);
+
+    if (lpLongPath)
+        HeapFree(g_Heap, 0, lpLongPath);
 
     if (hFileMapping)
         CloseHandle(hFileMapping);
@@ -782,4 +801,266 @@ BOOL supMapInputFile(
     SetLastError(dwError);
 
     return (mappedFile != NULL);
+}
+
+/*
+* supxAllocCopyString
+*
+* Purpose:
+*
+* Helper routine to allocate memory for the supplied string.
+*
+*/
+LPWSTR supxAllocCopyString(
+    _In_ LPCWSTR lpText
+)
+{
+    SIZE_T cchText;
+    LPWSTR lpResult;
+
+    if (lpText == NULL)
+        return NULL;
+
+    cchText = _strlen(lpText) + 1;
+    lpResult = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, cchText * sizeof(WCHAR));
+    if (lpResult == NULL)
+        return NULL;
+
+    _strcpy(lpResult, lpText);
+    return lpResult;
+}
+
+/*
+* supConvertToLongPath
+*
+* Purpose:
+*
+* Converts input path into long path.
+*
+*/
+LPWSTR supConvertToLongPath(
+    _In_ LPCWSTR lpPath
+)
+{
+    BOOL isUNC = FALSE;
+    BOOL alreadyLong = FALSE;
+    SIZE_T pathLen = 0;
+    SIZE_T cchRequired = 0;
+    LPWSTR lpResult = NULL;
+
+    if (lpPath == NULL || *lpPath == 0)
+        return NULL;
+
+    pathLen = _strlen(lpPath);
+
+    //
+    // Detect if path is already long or UNC
+    //
+    if (_strncmp(lpPath, TEXT("\\\\?\\"), 4) == 0)
+        alreadyLong = TRUE;
+
+    if (pathLen >= 2 &&
+        lpPath[0] == TEXT('\\') &&
+        lpPath[1] == TEXT('\\'))
+    {
+        isUNC = TRUE;
+    }
+
+    //
+    // If it is already long or less than MAX_PATH return it as is.
+    // 
+    if (alreadyLong || pathLen < MAX_PATH)
+        return supxAllocCopyString(lpPath);
+
+    if (isUNC) {
+        cchRequired = pathLen + 7;
+        lpResult = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, cchRequired * sizeof(WCHAR));
+        if (lpResult == NULL)
+            return NULL;
+
+        _strcpy(lpResult, TEXT("\\\\?\\UNC\\"));
+        _strcat(lpResult, lpPath + 2);
+    }
+    else {
+        cchRequired = pathLen + 5;
+        lpResult = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, cchRequired * sizeof(WCHAR));
+        if (lpResult == NULL)
+            return NULL;
+
+        _strcpy(lpResult, TEXT("\\\\?\\"));
+        _strcat(lpResult, lpPath);
+    }
+
+    return lpResult;
+}
+
+/*
+* supPathFileExists
+*
+* Purpose:
+*
+* Checks if the given file/path exists.
+*
+*/
+BOOL supPathFileExists(
+    _In_ LPCWSTR lpszPath
+)
+{
+    DWORD attr;
+    LPWSTR lpLongPath;
+
+    if (lpszPath == NULL)
+        return FALSE;
+
+    lpLongPath = supConvertToLongPath(lpszPath);
+    if (lpLongPath == NULL)
+        return FALSE;
+
+    attr = GetFileAttributes(lpLongPath);
+    HeapFree(g_Heap, 0, lpLongPath);
+
+    return (attr != (DWORD)-1);
+}
+
+/*
+* supIsDir
+*
+* Purpose:
+*
+* Checks if the given file path is a directory.
+*
+*/
+BOOL supIsDir(
+    _In_ LPCWSTR lpszPath
+)
+{
+    DWORD attr;
+    LPWSTR lpLongPath;
+
+    if (lpszPath == NULL)
+        return FALSE;
+
+    lpLongPath = supConvertToLongPath(lpszPath);
+    if (lpLongPath == NULL)
+        return FALSE;
+
+    attr = GetFileAttributes(lpLongPath);
+    HeapFree(g_Heap, 0, lpLongPath);
+
+    return (attr != (DWORD)-1 &&
+        (attr & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY);
+}
+
+/*
+* supCreateDirectoryRecursive
+*
+* Purpose:
+*
+* Create directories for each path element.
+*
+*/
+BOOL supCreateDirectoryRecursive(
+    _In_ LPCWSTR lpDirectory
+)
+{
+    BOOL bResult = FALSE;
+    DWORD attr;
+    LPWSTR lpPath = NULL;
+    LPWSTR lpLongPath = NULL;
+    LPWSTR p = NULL;
+    SIZE_T cchPath = 0;
+
+    if (lpDirectory == NULL || *lpDirectory == 0)
+        return FALSE;
+
+    lpLongPath = supConvertToLongPath(lpDirectory);
+    if (lpLongPath == NULL)
+        return FALSE;
+
+    attr = GetFileAttributes(lpLongPath);
+    if (attr != INVALID_FILE_ATTRIBUTES) {
+        bResult = ((attr & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY);
+        HeapFree(g_Heap, 0, lpLongPath);
+        return bResult;
+    }
+
+    HeapFree(g_Heap, 0, lpLongPath);
+    lpLongPath = NULL;
+
+    cchPath = _strlen(lpDirectory);
+    lpPath = (LPWSTR)HeapAlloc(g_Heap, HEAP_ZERO_MEMORY, (cchPath + 1) * sizeof(WCHAR));
+    if (lpPath == NULL)
+        return FALSE;
+
+    _strcpy(lpPath, lpDirectory);
+
+    p = lpPath;
+
+    if (((p[0] >= L'A' && p[0] <= L'Z') || (p[0] >= L'a' && p[0] <= L'z')) &&
+        p[1] == L':' && p[2] == L'\\')
+    {
+        p += 3;
+    }
+    else if (p[0] == L'\\' && p[1] == L'\\') {
+        p += 2;
+        while (*p && *p != L'\\')
+            p++;
+        if (*p == L'\\')
+            p++;
+        while (*p && *p != L'\\')
+            p++;
+        if (*p == L'\\')
+            p++;
+    }
+
+    while (*p) {
+        if (*p == L'\\') {
+            *p = 0;
+
+            lpLongPath = supConvertToLongPath(lpPath);
+            if (lpLongPath == NULL) {
+                HeapFree(g_Heap, 0, lpPath);
+                return FALSE;
+            }
+
+            attr = GetFileAttributes(lpLongPath);
+            if (attr == INVALID_FILE_ATTRIBUTES) {
+                if (!CreateDirectory(lpLongPath, NULL)) {
+                    HeapFree(g_Heap, 0, lpLongPath);
+                    HeapFree(g_Heap, 0, lpPath);
+                    return FALSE;
+                }
+            }
+            else if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                HeapFree(g_Heap, 0, lpLongPath);
+                HeapFree(g_Heap, 0, lpPath);
+                return FALSE;
+            }
+
+            HeapFree(g_Heap, 0, lpLongPath);
+            lpLongPath = NULL;
+
+            *p = L'\\';
+        }
+        p++;
+    }
+
+    lpLongPath = supConvertToLongPath(lpPath);
+    if (lpLongPath == NULL) {
+        HeapFree(g_Heap, 0, lpPath);
+        return FALSE;
+    }
+
+    attr = GetFileAttributes(lpLongPath);
+    if (attr == INVALID_FILE_ATTRIBUTES) {
+        bResult = CreateDirectory(lpLongPath, NULL);
+    }
+    else {
+        bResult = ((attr & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY);
+    }
+
+    HeapFree(g_Heap, 0, lpLongPath);
+    HeapFree(g_Heap, 0, lpPath);
+
+    return bResult;
 }
