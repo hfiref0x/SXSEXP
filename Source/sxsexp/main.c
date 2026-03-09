@@ -352,7 +352,7 @@ BOOL ProcessFileDCS(
     }
 
     do {
-        if (SourceFileSize < FIELD_OFFSET(DCS_HEADER, FirstBlock)) {
+        if (SourceFileSize < (SIZE_T)FIELD_OFFSET(DCS_HEADER, FirstBlock)) {
             dwLastError = ERROR_INVALID_DATA;
             supConsoleWriteErrorLine(&gConsole, TEXT("\r\nError, invalid DCS header"));
             break;
