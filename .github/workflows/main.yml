@@ -1,0 +1,66 @@
+name: Build SXSEXP
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+env:
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Build sxsexp x64
+        working-directory: ./Source/sxsexp
+        run: msbuild sxsexp.vcxproj /m /p:Platform=x64 /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:PlatformToolset=v143
+
+      - name: Collect x64 artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Package\x64 | Out-Null
+          $x64Out = "Source\sxsexp\output\x64\${{ env.BUILD_CONFIGURATION }}"
+
+          if (!(Test-Path "$x64Out\sxsexp64.exe")) {
+            throw "sxsexp64.exe not found in $x64Out"
+          }
+
+          Copy-Item "$x64Out\sxsexp64.exe" "Package\x64" -Force
+
+      - name: Upload sxsexp64 snapshot
+        uses: actions/upload-artifact@v6
+        with:
+          name: sxsexp64_snapshot.zip
+          path: Package\x64\*
+
+      - name: Build sxsexp Win32
+        working-directory: ./Source/sxsexp
+        run: msbuild sxsexp.vcxproj /m /p:Platform=Win32 /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:PlatformToolset=v143
+
+      - name: Collect x86 artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Package\Win32 | Out-Null
+          $x86Out = "Source\sxsexp\output\Win32\${{ env.BUILD_CONFIGURATION }}"
+
+          if (!(Test-Path "$x86Out\sxsexp32.exe")) {
+            throw "sxsexp32.exe not found in $x86Out"
+          }
+
+          Copy-Item "$x86Out\sxsexp32.exe" "Package\Win32" -Force
+
+      - name: Upload sxsexp32 snapshot
+        uses: actions/upload-artifact@v6
+        with:
+          name: sxsexp32_snapshot.zip
+          path: Package\Win32\*
